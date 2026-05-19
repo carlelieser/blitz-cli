@@ -5,10 +5,10 @@ Downloads, installs, and patches Blitz to remove ads and disable auto-updates.
 Patches are defined in the patches/ directory as JSON files.
 
 Usage:
-  blitz                  auto-download + install + patch
-  blitz BlitzSetup.exe   skip download, use local installer
-  blitz --patch-only     skip install, patch existing Blitz
-  blitz --update         update blitz-cli itself
+  blitz                        auto-download + install + patch
+  blitz patch                  patch existing Blitz installation
+  blitz patch <installer>      patch using a local installer file
+  blitz update                 update blitz-cli itself
 """
 
 import json, os, platform, re, shutil, subprocess, sys, tempfile, time, zipfile
@@ -312,17 +312,25 @@ def self_update():
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    if "--update" in sys.argv:
+    args = sys.argv[1:]
+    command = args[0] if args else None
+
+    if command == "update":
         self_update()
         return
 
-    patch_only = "--patch-only" in sys.argv
-    installer  = None
+    patch_only = command == "patch"
+    installer = None
 
-    if not patch_only:
-        args = [a for a in sys.argv[1:] if not a.startswith("--")]
-        if args:
-            installer = Path(args[0])
+    if patch_only:
+        if len(args) > 1:
+            installer = Path(args[1])
+            if not installer.exists():
+                sys.exit(f"File not found: {installer}")
+            install_blitz(installer)
+    else:
+        if command:
+            installer = Path(command)
             if not installer.exists():
                 sys.exit(f"File not found: {installer}")
         else:
