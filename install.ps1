@@ -23,8 +23,8 @@ function Test-RealPython {
 function Ensure-Dep {
     param($Label, $WingetId, [scriptblock]$Test)
     Write-Step "Checking $Label"
-    if (& $Test) { Write-Ok "$Label is already installed"; return }
-    Write-Warn "$Label not found — installing via winget..."
+    if (& $Test) { Write-Ok "$Label already installed"; return }
+    Write-Warn "$Label not found — installing via winget ..."
     winget install --id $WingetId --silent --accept-package-agreements --accept-source-agreements | Out-Null
     Refresh-Path
     if (-not (& $Test)) {
@@ -69,7 +69,7 @@ Write-Step "Creating blitz command"
 
 $shim = "@echo off`r`npython `"%USERPROFILE%\.blitz-cli\blitz.py`" %*"
 Set-Content (Join-Path $InstallDir "blitz.cmd") $shim -Encoding ASCII
-Write-Ok "blitz.cmd ready"
+Write-Ok "Blitz shim created"
 
 # ── PATH ──────────────────────────────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ if ($userPath -notlike "*$InstallDir*") {
     $env:PATH += ";$InstallDir"
     Write-Ok "Added $InstallDir to PATH"
 } else {
-    Write-Ok "Already on PATH"
+    Write-Ok "Already on PATH — no changes needed"
 }
 
 # ── Run ───────────────────────────────────────────────────────────────────────
@@ -90,7 +90,8 @@ Write-Step "Patching Blitz"
 & python (Join-Path $InstallDir "blitz.py")
 
 Write-Host ""
-Write-Host "  blitz              re-patch after a Blitz update" -ForegroundColor DarkGray
-Write-Host "  blitz --patch-only patch without reinstalling"     -ForegroundColor DarkGray
-Write-Host "  blitz --update     update blitz-cli itself"        -ForegroundColor DarkGray
+Write-Host "  blitz              Re-download, install, and patch" -ForegroundColor DarkGray
+Write-Host "  blitz patch        Patch existing Blitz installation" -ForegroundColor DarkGray
+Write-Host "  blitz patch <file> Patch using a local installer"  -ForegroundColor DarkGray
+Write-Host "  blitz update       Update blitz-cli itself"        -ForegroundColor DarkGray
 Write-Host ""

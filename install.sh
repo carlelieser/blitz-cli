@@ -20,7 +20,7 @@ step "Checking Python"
 if command -v python3 &>/dev/null; then
     ok "Python found: $(python3 --version)"
 else
-    warn "Python not found — installing..."
+    warn "Python not found — installing ..."
     if [[ "$OS" == "Darwin" ]]; then
         command -v brew &>/dev/null || \
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -30,7 +30,7 @@ else
     elif command -v dnf &>/dev/null; then
         sudo dnf install -y python3 python3-pip
     else
-        fail "Could not install Python automatically. Please install it from https://python.org"
+        fail "Could not install Python automatically. Please install it from https://python.org."
     fi
 fi
 
@@ -40,7 +40,7 @@ step "Checking Node.js"
 if command -v node &>/dev/null; then
     ok "Node.js found: $(node --version)"
 else
-    warn "Node.js not found — installing..."
+    warn "Node.js not found — installing ..."
     if [[ "$OS" == "Darwin" ]]; then
         brew install node
     elif command -v apt-get &>/dev/null; then
@@ -48,7 +48,7 @@ else
     elif command -v dnf &>/dev/null; then
         sudo dnf install -y nodejs npm
     else
-        fail "Could not install Node.js automatically. Please install it from https://nodejs.org"
+        fail "Could not install Node.js automatically. Please install it from https://nodejs.org."
     fi
 fi
 
@@ -65,7 +65,7 @@ unzip -q "$TMP/blitz-cli.zip" -d "$TMP"
 rm -rf "$INSTALL_DIR"
 cp -r "$TMP/blitz-cli-main" "$INSTALL_DIR"
 
-ok "Installed"
+ok "Installed to $INSTALL_DIR"
 
 # ── blitz shim ────────────────────────────────────────────────────────────────
 
@@ -77,7 +77,7 @@ exec python3 "$HOME/.blitz-cli/blitz.py" "$@"
 EOF
 chmod +x "$INSTALL_DIR/blitz"
 
-ok "blitz shim created"
+ok "Blitz shim created"
 
 # ── PATH ──────────────────────────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ if [[ -n "$RC" ]]; then
         echo 'export PATH="$HOME/.blitz-cli:$PATH"' >> "$RC"
         ok "Added to $RC"
     else
-        ok "Already in $RC"
+        ok "Already in $RC — no changes needed"
     fi
 fi
 
@@ -114,4 +114,5 @@ echo "  blitz patch <file> patch using a local installer"
 echo "  blitz update       update blitz-cli itself"
 echo ""
 echo "Restart your terminal for 'blitz' to work in new sessions."
+
 echo ""
