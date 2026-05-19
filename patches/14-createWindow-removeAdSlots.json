@@ -1,7 +1,7 @@
 {
   "file": "src/createWindow.js",
-  "description": "Hides ad slot elements by injecting a stylesheet on did-finish-load",
+  "description": "Removes ad slot elements from the DOM on did-finish-load",
   "type": "insert_after_regex",
   "pattern": "browserView\\.webContents\\.loadURL\\(url\\);",
-  "insert": "\n  browserView.webContents.on(\"did-finish-load\", () => {\n    browserView.webContents.executeJavaScript(\n      \"(function() { var s = document.createElement('style'); s.textContent = '[class*=\\\"\\\\uD83E\\\\uDD11-column\\\"],[class*=\\\"\\\\uD83E\\\\uDD11-container\\\"],[class*=\\\"display-\\\\uD83E\\\\uDD11\\\"]{display:none!important;}'; document.head.appendChild(s); }());\"\n    ).catch(function() {});\n  });"
+  "insert": "\n  browserView.webContents.on(\"did-finish-load\", () => {\n    browserView.webContents.executeJavaScript(\n      \"document.querySelectorAll('[class*=\\\"\\\\uD83E\\\\uDD11-column\\\"],[class*=\\\"\\\\uD83E\\\\uDD11-container\\\"],[class*=\\\"display-\\\\uD83E\\\\uDD11\\\"]').forEach(function(el) { el.remove(); });\"\n    ).catch(function() {});\n  });"
 }
