@@ -109,10 +109,17 @@ def _install_mac(dmg: Path):
     import plistlib
     print("Mounting disk image ...")
     result = subprocess.run(
-        ["hdiutil", "attach", str(dmg), "-nobrowse", "-quiet", "-plist"],
+        ["hdiutil", "attach", str(dmg), "-nobrowse", "-noverify", "-plist"],
         capture_output=True, check=True,
     )
-    info = plistlib.loads(result.stdout)
+    # hdiutil may emit non-plist bytes before the XML; find where it starts
+    stdout = result.stdout
+    xml_start = stdout.find(b"<?xml")
+    if xml_start == -1:
+        xml_start = stdout.find(b"bplist")
+    if xml_start > 0:
+        stdout = stdout[xml_start:]
+    info = plistlib.loads(stdout)
     mount_point = next(
         e["mount-point"]
         for e in info["system-entities"]
@@ -187,6 +194,36 @@ def repack_asar(src: Path, out: Path):
             f".catch(e=>{{console.error(e);process.exit(1)}});"
         )
         subprocess.run([_require("node"), "-e", script], check=True)
+
+
+def _resign_mac():
+    print("Re-signing Blitz.app ...")
+    fw = BLITZ_DIR / "Contents/Frameworks/Electron Framework.framework"
+
+    # Remove the original Apple signature — it's invalidated by the asar repack
+    subprocess.run(["codesign", "--remove-signature", str(BLITZ_DIR)], capture_output=True)
+
+    # Sign dylibs inside Electron Framework
+    libs = fw / "Versions/A/Libraries"
+    for dylib in libs.glob("*.dylib"):
+        subprocess.run(["codesign", "--force", "--sign", "-", str(dylib)],
+                       check=True, capture_output=True)
+
+    # Sign Helper .app bundles
+    helpers_dir = BLITZ_DIR / "Contents/Frameworks"
+    for helper in helpers_dir.glob("*.app"):
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(helper)],
+                       check=True, capture_output=True)
+
+    # Sign the main bundle last (subcomponents already signed)
+    subprocess.run(["codesign", "--force", "--sign", "-", str(BLITZ_DIR)],
+                   check=True, capture_output=True)
+
+    # Clear quarantine so Gatekeeper doesn't block first launch
+    subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(BLITZ_DIR)],
+                   capture_output=True)
+
+    print("  Re-signed")
 
 
 # ─── Patch engine ─────────────────────────────────────────────────────────────
@@ -304,6 +341,9 @@ def main():
         extract_asar(APP_ASAR, src)
         apply_all_patches(src)
         repack_asar(src, APP_ASAR)
+
+    if SYSTEM == "Darwin":
+        _resign_mac()
 
     print("✓ Done.")
 
