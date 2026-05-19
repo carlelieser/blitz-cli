@@ -279,7 +279,7 @@ def self_update():
             else:
                 shutil.copy2(item, dest)
 
-    print("✓ updated")
+    print("✓ Updated")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -313,7 +313,7 @@ def main():
             download_file(url, installer)
 
         install_blitz(installer)
-        print("✓ installed")
+        print("✓ Installed")
 
     if not APP_ASAR.exists():
         sys.exit(f"app.asar not found at {APP_ASAR}")
@@ -327,7 +327,7 @@ def main():
     if SYSTEM == "Darwin":
         _resign_mac()
 
-    print("✓ patched")
+    print("✓ Patched")
 
 
 if __name__ == "__main__":

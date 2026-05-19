@@ -1,6 +1,6 @@
 {
   "file": "src/ota.js",
-  "description": "checkForUpdates is a no-op (prevents OTA version loading)",
+  "description": "Disables OTA update check to prevent loading a newer version",
   "type": "insert_after_regex",
   "pattern": "async checkForUpdates\\(\\)\\s*\\{",
   "insert": "\n    return null;"

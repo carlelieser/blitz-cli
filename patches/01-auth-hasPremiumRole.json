@@ -1,6 +1,6 @@
 {
   "file": "src/auth.js",
-  "description": "hasPremiumRole always returns true (grants premium to all users)",
+  "description": "Always returns true for premium role check, granting premium to all users",
   "type": "insert_after_regex",
   "pattern": "function hasPremiumRole\\([^)]*\\)\\s*\\{",
   "insert": "\n  return true;"

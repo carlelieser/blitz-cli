@@ -1,6 +1,6 @@
 {
   "file": "src/gameHandlers/lol/overlaySettings.js",
-  "description": "checkProStatus always returns true (enables pro overlay for all users)",
+  "description": "Always returns true for pro status check, enabling pro overlay for all users",
   "type": "insert_after_regex",
   "pattern": "async function checkProStatus\\(\\)\\s*\\{",
   "insert": "\n  return true;"
