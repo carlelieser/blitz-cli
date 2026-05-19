@@ -1,7 +1,7 @@
 {
   "file": "src/createWindow.js",
-  "description": "Removes ad slot elements from the DOM on did-finish-load",
+  "description": "Removes ad slot elements from the DOM using a MutationObserver installed on did-finish-load",
   "type": "insert_after_regex",
   "pattern": "browserView\\.webContents\\.loadURL\\(url\\);",
-  "insert": "\n  browserView.webContents.on(\"did-finish-load\", () => {\n    browserView.webContents.executeJavaScript(\n      \"document.querySelectorAll('[class*=\\\"\\\\uD83E\\\\uDD11-column\\\"],[class*=\\\"\\\\uD83E\\\\uDD11-container\\\"],[class*=\\\"display-\\\\uD83E\\\\uDD11\\\"]').forEach(function(el) { el.remove(); });\"\n    ).catch(function() {});\n  });"
+  "insert": "\n  browserView.webContents.on(\"did-finish-load\", () => {\n    browserView.webContents.executeJavaScript(\n      \"(function() { var sel = '[class*=\\\"\\\\uD83E\\\\uDD11-column\\\"],[class*=\\\"\\\\uD83E\\\\uDD11-container\\\"],[class*=\\\"display-\\\\uD83E\\\\uDD11\\\"]'; function clean() { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } clean(); new MutationObserver(clean).observe(document.documentElement, { childList: true, subtree: true }); }());\"\n    ).catch(function() {});\n  });"
 }
