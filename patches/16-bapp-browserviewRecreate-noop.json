@@ -1,0 +1,7 @@
+{
+  "file": "src/listeners/bapp.js",
+  "description": "BROWSERVIEW_RECREATE is a no-op (prevents BrowserView recreation that logs the user out)",
+  "type": "replace",
+  "find": "addListener(EvTypes.BROWSERVIEW_RECREATE, (url) => {\n  reCreateBrowserView(url);\n});",
+  "replace": "addListener(EvTypes.BROWSERVIEW_RECREATE, (url) => {\n  return;\n});"
+}
