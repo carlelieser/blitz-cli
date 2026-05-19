@@ -1,0 +1,7 @@
+{
+  "file": "src/autoUpdater/index.js",
+  "description": "init is a no-op (prevents electron autoUpdater from activating and force-quitting the app)",
+  "type": "insert_after_regex",
+  "pattern": "function init\\(\\)\\s*\\{",
+  "insert": "\n  return;"
+}

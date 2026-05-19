@@ -1,0 +1,7 @@
+{
+  "file": "src/autoUpdater/index.js",
+  "description": "bootApp returns immediately (prevents updater splash window from hanging)",
+  "type": "insert_after_regex",
+  "pattern": "function bootApp\\([^)]*\\)\\s*\\{",
+  "insert": "\n  return Promise.resolve();"
+}
