@@ -17,10 +17,10 @@ curl -fsSL https://raw.githubusercontent.com/carlelieser/blitz-cli/main/install.
 ## Usage
 
 ```
-blitz                  download, install, and patch Blitz
-blitz --patch-only     patch an existing Blitz installation
-blitz --update         update blitz-cli itself
-blitz <installer>      use a local installer file
+blitz                        download, install, and patch Blitz
+blitz patch                  patch an existing Blitz installation
+blitz patch <installer>      install from a local file, then patch
+blitz update                 update blitz-cli itself
 ```
 
 ## Requirements
