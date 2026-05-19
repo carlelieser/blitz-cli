@@ -17,7 +17,6 @@ from pathlib import Path
 try:
     import requests
 except ImportError:
-    print("Installing requests ...")
     subprocess.run([sys.executable, "-m", "pip", "install", "requests"], check=True, capture_output=True)
     import requests
 
@@ -48,8 +47,6 @@ _UPDATE_BASE   = "https://blitz-main.blitz.gg"
 _LATEST_YML    = {"Windows": "latest.yml", "Darwin": "latest-mac.yml"}
 
 def get_installer_url() -> str:
-    print("Fetching download URL ...")
-
     yml_name = _LATEST_YML.get(SYSTEM)
     if not yml_name:
         raise RuntimeError(
@@ -77,7 +74,6 @@ def get_installer_url() -> str:
 
 
 def download_file(url: str, dest: Path):
-    print(f"Downloading {Path(url).name} ...")
     with requests.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
@@ -88,18 +84,14 @@ def download_file(url: str, dest: Path):
                 done += len(chunk)
                 if total:
                     pct = done * 100 // total
-                    mb = done / 1_048_576
-                    print(f"\r  {pct:3d}%  {mb:.1f} MB", end="", flush=True)
-    print(f"\r  Done ({dest.stat().st_size / 1_048_576:.1f} MB)")
+                    print(f"\r  {pct:3d}%", end="", flush=True)
+    print(f"\r✓ {Path(url).name} ({dest.stat().st_size / 1_048_576:.0f} MB)")
 
 
 def _install_windows(exe: Path):
-    print("Installing Blitz ...")
     subprocess.run([str(exe), "/S"], check=True)
-    print("Waiting for installation ...")
     for _ in range(60):
         if APP_ASAR.exists():
-            print(f"  Installed → {BLITZ_DIR}")
             return
         time.sleep(2)
     raise RuntimeError("Timed out — app.asar not found after install")
@@ -127,21 +119,17 @@ def _install_mac(dmg: Path):
     )
     try:
         app_src = Path(mount_point) / "Blitz.app"
-        print("Copying Blitz.app to /Applications ...")
         if BLITZ_DIR.exists():
             shutil.rmtree(BLITZ_DIR)
         shutil.copytree(app_src, BLITZ_DIR)
     finally:
         subprocess.run(["hdiutil", "detach", mount_point, "-quiet"])
-    print(f"  Installed → {BLITZ_DIR}")
 
 
 def _install_linux(deb: Path):
-    print("Installing Blitz ...")
     subprocess.run(["sudo", "dpkg", "-i", str(deb)], check=True)
     if not APP_ASAR.exists():
         raise RuntimeError(f"app.asar not found at {APP_ASAR} after install")
-    print(f"  Installed → {BLITZ_DIR}")
 
 
 def install_blitz(installer: Path):
@@ -163,7 +151,6 @@ def _require(name: str) -> str:
 
 
 def extract_asar(src: Path, dest: Path):
-    print("Unpacking Blitz ...")
     dest.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [_require("npx"), "--yes", "@electron/asar", "extract", str(src), str(dest)],
@@ -172,12 +159,10 @@ def extract_asar(src: Path, dest: Path):
 
 
 def repack_asar(src: Path, out: Path):
-    print("Repacking Blitz ...")
     # Use Node.js API — CLI --unpack glob doesn't match nested .node files
     with tempfile.TemporaryDirectory() as d:
         npm_dir = Path(d)
         (npm_dir / "package.json").write_text("{}")
-        print("  Preparing tools ...")
         subprocess.run(
             [_require("npm"), "install", "@electron/asar"],
             cwd=str(npm_dir), check=True, capture_output=True,
@@ -197,7 +182,6 @@ def repack_asar(src: Path, out: Path):
 
 
 def _resign_mac():
-    print("Re-signing Blitz.app ...")
     fw = BLITZ_DIR / "Contents/Frameworks/Electron Framework.framework"
 
     # Remove the original Apple signature — it's invalidated by the asar repack
@@ -222,8 +206,6 @@ def _resign_mac():
     # Clear quarantine so Gatekeeper doesn't block first launch
     subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(BLITZ_DIR)],
                    capture_output=True)
-
-    print("  Re-signed")
 
 
 # ─── Patch engine ─────────────────────────────────────────────────────────────
@@ -258,17 +240,15 @@ def apply_all_patches(src: Path):
     if not patch_files:
         raise RuntimeError(f"No patch files found in {PATCHES_DIR}")
 
-    print(f"Applying {len(patch_files)} patches ...")
     for pf in patch_files:
         patch = json.loads(pf.read_text("utf-8"))
         apply_patch(src, patch)
-        print(f"  ✓ [{pf.stem}] {patch['description']}")
+        print(f"  ✓ {patch['description']}")
 
 
 # ─── Self-update ──────────────────────────────────────────────────────────────
 
 def self_update():
-    print("Updating blitz-cli ...")
     install_dir = Path(__file__).parent
     url = "https://github.com/carlelieser/blitz-cli/archive/refs/heads/main.zip"
 
@@ -276,18 +256,11 @@ def self_update():
         tmp = Path(tmp)
         zip_path = tmp / "blitz-cli.zip"
 
-        print("Downloading latest blitz-cli ...")
         with requests.get(url, stream=True, timeout=60) as r:
             r.raise_for_status()
-            total = int(r.headers.get("content-length", 0))
-            done = 0
             with open(zip_path, "wb") as f:
                 for chunk in r.iter_content(65536):
                     f.write(chunk)
-                    done += len(chunk)
-                    if total:
-                        print(f"\r  {done * 100 // total:3d}%", end="", flush=True)
-        print()
 
         extract_dir = tmp / "extract"
         with zipfile.ZipFile(zip_path) as zf:
@@ -306,7 +279,7 @@ def self_update():
             else:
                 shutil.copy2(item, dest)
 
-    print("✓ blitz-cli updated.")
+    print("✓ updated")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -340,6 +313,7 @@ def main():
             download_file(url, installer)
 
         install_blitz(installer)
+        print("✓ installed")
 
     if not APP_ASAR.exists():
         sys.exit(f"app.asar not found at {APP_ASAR}")
@@ -353,7 +327,7 @@ def main():
     if SYSTEM == "Darwin":
         _resign_mac()
 
-    print("✓ Done.")
+    print("✓ patched")
 
 
 if __name__ == "__main__":
