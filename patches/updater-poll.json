@@ -1,0 +1,8 @@
+{
+  "priority": 8,
+  "file": "src/autoUpdater/index.js",
+  "description": "Skip background auto-update polling",
+  "type": "insert_after_regex",
+  "pattern": "function pollForUpdates\\(\\)\\s*\\{",
+  "insert": "\n  return;"
+}

@@ -1,0 +1,8 @@
+{
+  "priority": 6,
+  "file": "src/autoUpdater/index.js",
+  "description": "Skip bootApp to prevent updater splash from hanging on launch",
+  "type": "insert_after_regex",
+  "pattern": "function bootApp\\([^)]*\\)\\s*\\{",
+  "insert": "\n  return Promise.resolve();"
+}
