@@ -1,6 +1,6 @@
 {
   "file": "src/listeners/bapp.js",
-  "description": "WINDOW_RECREATE is a no-op (prevents full window destruction/recreation that logs the user out)",
+  "description": "No-op WINDOW_RECREATE to prevent window recreation that logs the user out",
   "type": "replace",
   "find": "addListener(EvTypes.WINDOW_RECREATE, () => {\n  reCreateWindow();\n});",
   "replace": "addListener(EvTypes.WINDOW_RECREATE, () => {\n  return;\n});"

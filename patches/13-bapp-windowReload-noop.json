@@ -1,6 +1,6 @@
 {
   "file": "src/listeners/bapp.js",
-  "description": "WINDOW_RELOAD is a no-op (prevents the renderer from forcing page reloads that log the user out)",
+  "description": "No-op WINDOW_RELOAD to prevent page reloads that log the user out",
   "type": "replace",
   "find": "addListener(EvTypes.WINDOW_RELOAD, async () => {\n  windows.client.browserView.webContents.reload();\n  return true;\n});",
   "replace": "addListener(EvTypes.WINDOW_RELOAD, async () => {\n  return true;\n});"

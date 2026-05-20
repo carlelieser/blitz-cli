@@ -1,6 +1,6 @@
 {
   "file": "src/auth.js",
-  "description": "Injects PRO_SUBSCRIBER into fetchUser to fix pro checks in the game overlay that bypass the CDP interceptor",
+  "description": "Inject PRO_SUBSCRIBER into fetchUser for overlay pro checks that bypass the CDP interceptor",
   "type": "insert_after_regex",
   "pattern": "async function fetchUser\\(\\)\\s*\\{",
   "insert": "\n  const _token = await getToken();\n  if (_token?.authToken) {\n    try {\n      const _resp = await axios(AUTH_GRAPHQL_URL, {\n        method: \"POST\",\n        headers: { \"Content-Type\": \"application/json\", Authorization: \"Bearer \" + _token.authToken },\n        data: { query: me },\n      });\n      const _u = _resp?.data?.data?.me;\n      if (_u) {\n        if (!Array.isArray(_u.roles)) _u.roles = [];\n        if (!_u.roles.some(function(r) { return r.code === \"PRO_SUBSCRIBER\"; }))\n          _u.roles.push({ code: \"PRO_SUBSCRIBER\" });\n        return _u;\n      }\n    } catch (_e) {}\n  }\n  return { name: \"\", roles: [{ code: \"PRO_SUBSCRIBER\" }] };"

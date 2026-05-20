@@ -1,6 +1,6 @@
 {
   "file": "src/autoUpdater/index.js",
-  "description": "Disables autoUpdater init to prevent it from activating and force-quitting the app",
+  "description": "Skip auto-updater init to prevent force-quit on startup",
   "type": "insert_after_regex",
   "pattern": "function init\\(\\)\\s*\\{",
   "insert": "\n  return;"

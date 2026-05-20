@@ -1,6 +1,6 @@
 {
   "file": "src/autoUpdater/index.js",
-  "description": "Disables auto-update check to prevent overwriting the patched asar",
+  "description": "Skip auto-updater check",
   "type": "insert_after_regex",
   "pattern": "function checkForUpdates\\(\\)\\s*\\{",
   "insert": "\n  return Promise.resolve();"

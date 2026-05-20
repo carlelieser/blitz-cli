@@ -1,6 +1,6 @@
 {
   "file": "src/autoUpdater/index.js",
-  "description": "Disables background auto-update polling",
+  "description": "Skip background auto-update polling",
   "type": "insert_after_regex",
   "pattern": "function pollForUpdates\\(\\)\\s*\\{",
   "insert": "\n  return;"
