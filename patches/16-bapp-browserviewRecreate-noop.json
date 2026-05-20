@@ -1,4 +1,5 @@
 {
+  "priority": 15,
   "file": "src/listeners/bapp.js",
   "description": "No-op BROWSERVIEW_RECREATE to prevent BrowserView recreation that logs the user out",
   "type": "replace",

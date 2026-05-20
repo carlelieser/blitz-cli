@@ -1,4 +1,5 @@
 {
+  "priority": 13,
   "file": "src/createWindow.js",
   "description": "Hide ad slot elements, remove ad-reserved width from CSS, restore content to full width, and reapply on SPA navigation via MutationObserver",
   "type": "insert_after_regex",
