@@ -171,7 +171,7 @@ def repack_asar(src: Path, out: Path):
         s = str(src).replace("\\", "/")
         o = str(out).replace("\\", "/")
         a = str(asar_lib).replace("\\", "/")
-        unpack = "**/{*.node,liblzma.dll}" if SYSTEM == "Windows" else "**/*.node"
+        unpack = "**/*.node"
         script = (
             f"require('{a}').createPackageWithOptions('{s}','{o}',"
             f"{{unpack:'{unpack}'}}"
