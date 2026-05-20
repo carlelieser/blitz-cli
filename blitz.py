@@ -201,28 +201,6 @@ def extract_asar(src: Path, dest: Path):
         subprocess.run([_require("node"), "-e", script], check=True, cwd=str(npm_dir))
 
 
-def get_unpacked_files(asar_path: Path) -> list:
-    """Read the asar header and return paths of all files marked as unpacked."""
-    import struct
-    with open(asar_path, "rb") as f:
-        f.read(4)  # magic
-        header_size = struct.unpack("<I", f.read(4))[0]
-        f.read(8)  # padding
-        header = json.loads(f.read(header_size))
-
-    unpacked = []
-
-    def walk(node, path):
-        if "files" in node:
-            for name, child in node["files"].items():
-                walk(child, f"{path}/{name}" if path else name)
-        elif node.get("unpacked"):
-            unpacked.append(path)
-
-    walk(header, "")
-    return unpacked
-
-
 def repack_asar(src: Path, out: Path, original_asar: Path = None):
     with tempfile.TemporaryDirectory() as d:
         npm_dir = Path(d)
@@ -232,33 +210,40 @@ def repack_asar(src: Path, out: Path, original_asar: Path = None):
             cwd=str(npm_dir), check=True, capture_output=True,
         )
         asar_lib = npm_dir / "node_modules/@electron/asar/lib/asar.js"
+        disk_lib = npm_dir / "node_modules/@electron/asar/lib/disk.js"
         s = str(src).replace("\\", "/")
         o = str(out).replace("\\", "/")
         a = str(asar_lib).replace("\\", "/")
+        dk = str(disk_lib).replace("\\", "/")
 
         if original_asar and original_asar.exists():
-            # Build unpack pattern from the original asar's own unpacked file list
-            # so the repacked header matches exactly what Electron expects.
-            unpacked_files = get_unpacked_files(original_asar)
-            if unpacked_files:
-                escaped = [p.replace("\\", "/").lstrip("/") for p in unpacked_files]
-                unpack = "{" + ",".join(escaped) + "}"
-            else:
-                unpack = None
+            orig = str(original_asar).replace("\\", "/")
+            # Use the asar library itself to read the original header and collect
+            # unpacked file paths, then pass them as an explicit unpack glob.
+            script = (
+                f"var disk=require('{dk}');"
+                f"var hdr=disk.readFilesystemSync('{orig}').header;"
+                f"var unpacked=[];"
+                f"function walk(node,p){{"
+                f"  if(node.files){{for(var k in node.files)walk(node.files[k],p?p+'/'+k:k);return;}}"
+                f"  if(node.unpacked)unpacked.push(p);"
+                f"}}"
+                f"walk(hdr,'');"
+                f"var unpack=unpacked.length?'{{'+unpacked.join(',')+'}}':null;"
+                f"var opts=unpack?{{unpack:unpack}}:{{}};"
+                f"require('{a}').createPackageWithOptions('{s}','{o}',opts)"
+                f".then(()=>process.exit(0))"
+                f".catch(e=>{{console.error(e);process.exit(1)}});"
+            )
         else:
             unpack = "{**/*.node,**/liblzma.dll,**/lzma-native/**/*}" if SYSTEM == "Windows" else "{**/*.node,**/lzma-native/**/*}"
+            script = (
+                f"require('{a}').createPackageWithOptions('{s}','{o}',"
+                f"{{unpack:{json.dumps(unpack)}}}"
+                f").then(()=>process.exit(0))"
+                f".catch(e=>{{console.error(e);process.exit(1)}});"
+            )
 
-        if unpack:
-            opts = f"{{unpack:{json.dumps(unpack)}}}"
-        else:
-            opts = "{}"
-
-        script = (
-            f"require('{a}').createPackageWithOptions('{s}','{o}',"
-            f"{opts}"
-            f").then(()=>process.exit(0))"
-            f".catch(e=>{{console.error(e);process.exit(1)}});"
-        )
         subprocess.run([_require("node"), "-e", script], check=True, cwd=str(npm_dir))
 
 
