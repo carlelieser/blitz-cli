@@ -152,10 +152,53 @@ def _require(name: str) -> str:
 
 def extract_asar(src: Path, dest: Path):
     dest.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [_require("npx"), "--yes", "@electron/asar", "extract", str(src), str(dest)],
-        check=True, capture_output=True,
-    )
+    unpacked_dir = src.parent / (src.name + ".unpacked")
+
+    # The asar header may reference files in app.asar.unpacked that the
+    # installer omits (e.g. lzma-native's build-only node-addon-api deps).
+    # Create empty placeholders so the extractor doesn't crash, then remove
+    # them from the extracted tree so they never enter the repacked asar.
+    with tempfile.TemporaryDirectory() as d:
+        npm_dir = Path(d)
+        (npm_dir / "package.json").write_text("{}")
+        subprocess.run(
+            [_require("npm"), "install", "@electron/asar"],
+            cwd=str(npm_dir), check=True, capture_output=True,
+        )
+        asar_lib = npm_dir / "node_modules/@electron/asar/lib/asar.js"
+        s = str(src).replace("\\", "/")
+        o = str(dest).replace("\\", "/")
+        a = str(asar_lib).replace("\\", "/")
+        u = str(unpacked_dir).replace("\\", "/")
+
+        # Use a Node script that:
+        # 1. Walks the asar header to find unpacked files missing from disk
+        # 2. Creates real empty placeholders for them
+        # 3. Runs extractAll (now succeeds)
+        # 4. Deletes the placeholder files from the extracted output
+        script = (
+            f"var fs=require('fs'),path=require('path');"
+            f"var disk=require('{a}'.replace('asar.js','disk.js'));"
+            f"var hdr=disk.readFilesystemSync('{s}').header;"
+            f"var placeholders=[];"
+            f"function scan(node,p){{"
+            f"  if(node.files){{for(var k in node.files)scan(node.files[k],p?p+'/'+k:k);return;}}"
+            f"  if(!node.unpacked||node.link)return;"
+            f"  var fp=path.join('{u}',p);"
+            f"  if(!fs.existsSync(fp)){{"
+            f"    fs.mkdirSync(path.dirname(fp),{{recursive:true}});"
+            f"    fs.writeFileSync(fp,Buffer.alloc(0));"
+            f"    placeholders.push(p);"
+            f"  }}"
+            f"}}"
+            f"scan(hdr,'');"
+            f"require('{a}').extractAll('{s}','{o}');"
+            f"placeholders.forEach(function(p){{"
+            f"  try{{fs.unlinkSync(path.join('{u}',p));}}catch(e){{}}"
+            f"  try{{fs.unlinkSync(path.join('{o}',p));}}catch(e){{}}"
+            f"}});"
+        )
+        subprocess.run([_require("node"), "-e", script], check=True, cwd=str(npm_dir))
 
 
 def repack_asar(src: Path, out: Path):
@@ -171,14 +214,14 @@ def repack_asar(src: Path, out: Path):
         s = str(src).replace("\\", "/")
         o = str(out).replace("\\", "/")
         a = str(asar_lib).replace("\\", "/")
-        unpack = "{**/*.node,**/liblzma.dll}" if SYSTEM == "Windows" else "{**/*.node}"
+        unpack = "{**/*.node,**/liblzma.dll,**/lzma-native/**/*}" if SYSTEM == "Windows" else "{**/*.node,**/lzma-native/**/*}"
         script = (
             f"require('{a}').createPackageWithOptions('{s}','{o}',"
             f"{{unpack:'{unpack}'}}"
             f").then(()=>process.exit(0))"
             f".catch(e=>{{console.error(e);process.exit(1)}});"
         )
-        subprocess.run([_require("node"), "-e", script], check=True)
+        subprocess.run([_require("node"), "-e", script], check=True, cwd=str(npm_dir))
 
 
 def _resign_mac():
@@ -238,7 +281,8 @@ def apply_patch(src: Path, patch: dict):
 def apply_all_patches(src: Path):
     patch_files = list(PATCHES_DIR.glob("*.json"))
     if not patch_files:
-        raise RuntimeError(f"No patch files found in {PATCHES_DIR}")
+        print(f"  (no patch files found in {PATCHES_DIR} — skipping)")
+        return
 
     patches = [(json.loads(pf.read_text("utf-8")), pf) for pf in patch_files]
     patches.sort(key=lambda x: x[0].get("priority", 0))
@@ -284,6 +328,17 @@ def self_update():
     print("✓ Updated")
 
 
+# ─── Process management ───────────────────────────────────────────────────────
+
+def close_blitz():
+    if SYSTEM == "Windows":
+        subprocess.run(["taskkill", "/F", "/IM", "Blitz.exe"], capture_output=True)
+    elif SYSTEM == "Darwin":
+        subprocess.run(["pkill", "-x", "Blitz"], capture_output=True)
+    else:
+        subprocess.run(["pkill", "-x", "Blitz"], capture_output=True)
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -319,6 +374,8 @@ def main():
 
     if not APP_ASAR.exists():
         sys.exit(f"app.asar not found at {APP_ASAR}")
+
+    close_blitz()
 
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "asar-src"
