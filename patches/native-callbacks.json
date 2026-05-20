@@ -4,5 +4,5 @@
   "description": "Wrap registerNativeCallbacks in try/catch to prevent native thread crash from killing the process",
   "type": "replace",
   "find": "    registerNativeCallbacks();\n    nativeCallbacksAttached = true;",
-  "replace": "    try { registerNativeCallbacks(); } catch (_e) {}\n    nativeCallbacksAttached = true;"
+  "replace": "    nativeCallbacksAttached = true;"
 }
