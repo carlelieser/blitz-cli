@@ -1,0 +1,8 @@
+{
+  "priority": 17,
+  "file": "src/gameHandlers/gameManager.js",
+  "description": "No-op checkUIPIAccessLogic to prevent native isElevated crash on stale game PIDs",
+  "type": "replace",
+  "find": "const checkUIPIAccessLogic = (wndAttributes) => {\n  if (lastCheckPid !== wndAttributes.pid) {\n    if (\n      !check_uiaccess_injector_valid() &&\n      isProcessElevated(wndAttributes.pid)\n    ) {\n      log.info(\"[GM] will run sudo copy_uiaccess_injector\");\n      sudo_run_copy_uiaccess_injector();\n      lastCheckPid = wndAttributes.pid;\n    }\n  }\n};",
+  "replace": "const checkUIPIAccessLogic = (wndAttributes) => {\n  return;\n};"
+}
