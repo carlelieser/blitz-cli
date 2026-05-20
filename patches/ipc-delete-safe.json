@@ -1,0 +1,8 @@
+{
+  "priority": 18,
+  "file": "src/gameHandlers/gameManager.js",
+  "description": "Wrap deleteGameIpcChannels in try/catch to suppress ERROR_PIPE_NOT_CONNECTED (E6) when no DLL client is connected",
+  "type": "replace",
+  "find": "const deleteGameIpcChannels = () => {\n  const blitzCore = getBlitzCore();\n  blitzCore.DeleteIpcProducer(BLITZ_IPC_CHANNELS.producers.game);\n  blitzCore.DeleteIpcConsumer(BLITZ_IPC_CHANNELS.consumers.game);\n\n  log.warn(\"[ipc] destroyed game ipc channels.\");\n};",
+  "replace": "const deleteGameIpcChannels = () => {\n  try {\n    const blitzCore = getBlitzCore();\n    blitzCore.DeleteIpcProducer(BLITZ_IPC_CHANNELS.producers.game);\n    blitzCore.DeleteIpcConsumer(BLITZ_IPC_CHANNELS.consumers.game);\n    log.warn(\"[ipc] destroyed game ipc channels.\");\n  } catch (e) {\n    log.warn(\"[ipc] deleteGameIpcChannels skipped: \" + (e && e.message || e));\n  }\n};"
+}
