@@ -1,0 +1,8 @@
+{
+  "priority": 19,
+  "file": "src/gameHandlers/gameManager.js",
+  "description": "Set _gameIpcChannelsCreated flag when IPC producer is successfully created",
+  "type": "replace",
+  "find": "if (!blitzCore.CreateIpcProducer(BLITZ_IPC_CHANNELS.producers.game)) {\n        log.error(\"[x] Couldn't create game producer channel.\");\n        _results.failedToCreateGameProducer = true;\n      } else {\n        log.info(\"[+] Created game producer channel.\");\n        _results.failedToCreateGameProducer = false;\n      }",
+  "replace": "if (!blitzCore.CreateIpcProducer(BLITZ_IPC_CHANNELS.producers.game)) {\n        log.error(\"[x] Couldn't create game producer channel.\");\n        _results.failedToCreateGameProducer = true;\n      } else {\n        log.info(\"[+] Created game producer channel.\");\n        _results.failedToCreateGameProducer = false;\n        _gameIpcChannelsCreated = true;\n      }"
+}
