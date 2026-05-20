@@ -5,7 +5,8 @@ Downloads, installs, and patches Blitz to remove ads and disable auto-updates.
 Patches are defined in the patches/ directory as JSON files.
 
 Usage:
-  blitz                        auto-download + install + patch
+  blitz                        download + install + patch
+  blitz install                download + install latest Blitz (no patching)
   blitz patch                  patch existing Blitz installation
   blitz patch <installer>      patch using a local installer file
   blitz update                 update blitz-cli itself
@@ -159,7 +160,6 @@ def extract_asar(src: Path, dest: Path):
 
 
 def repack_asar(src: Path, out: Path):
-    # Use Node.js API — CLI --unpack glob doesn't match nested .node files
     with tempfile.TemporaryDirectory() as d:
         npm_dir = Path(d)
         (npm_dir / "package.json").write_text("{}")
@@ -171,7 +171,7 @@ def repack_asar(src: Path, out: Path):
         s = str(src).replace("\\", "/")
         o = str(out).replace("\\", "/")
         a = str(asar_lib).replace("\\", "/")
-        unpack = "{**/*.node,**/liblzma.dll}" if SYSTEM == "Windows" else "{**/*.node}"
+        unpack = "**/{*.node,liblzma.dll}" if SYSTEM == "Windows" else "**/*.node"
         script = (
             f"require('{a}').createPackageWithOptions('{s}','{o}',"
             f"{{unpack:'{unpack}'}}"
@@ -238,7 +238,8 @@ def apply_patch(src: Path, patch: dict):
 def apply_all_patches(src: Path):
     patch_files = list(PATCHES_DIR.glob("*.json"))
     if not patch_files:
-        raise RuntimeError(f"No patch files found in {PATCHES_DIR}")
+        print("No patches found — skipping")
+        return
 
     patches = [(json.loads(pf.read_text("utf-8")), pf) for pf in patch_files]
     patches.sort(key=lambda x: x[0].get("priority", 0))
@@ -292,6 +293,15 @@ def main():
 
     if command == "update":
         self_update()
+        return
+
+    if command == "install":
+        url = get_installer_url()
+        tmp = Path(tempfile.mkdtemp())
+        installer = tmp / Path(url).name
+        download_file(url, installer)
+        install_blitz(installer)
+        print("✓ Installed")
         return
 
     patch_only = command == "patch"

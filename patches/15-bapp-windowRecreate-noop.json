@@ -1,8 +1,0 @@
-{
-  "priority": 14,
-  "file": "src/listeners/bapp.js",
-  "description": "No-op WINDOW_RECREATE to prevent window recreation that logs the user out",
-  "type": "replace",
-  "find": "addListener(EvTypes.WINDOW_RECREATE, () => {\n  reCreateWindow();\n});",
-  "replace": "addListener(EvTypes.WINDOW_RECREATE, () => {\n  return;\n});"
-}
