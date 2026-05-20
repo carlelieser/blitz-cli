@@ -201,8 +201,29 @@ def extract_asar(src: Path, dest: Path):
         subprocess.run([_require("node"), "-e", script], check=True, cwd=str(npm_dir))
 
 
-def repack_asar(src: Path, out: Path):
-    # Use Node.js API — CLI --unpack glob doesn't match nested .node files
+def get_unpacked_files(asar_path: Path) -> list:
+    """Read the asar header and return paths of all files marked as unpacked."""
+    import struct
+    with open(asar_path, "rb") as f:
+        f.read(4)  # magic
+        header_size = struct.unpack("<I", f.read(4))[0]
+        f.read(8)  # padding
+        header = json.loads(f.read(header_size))
+
+    unpacked = []
+
+    def walk(node, path):
+        if "files" in node:
+            for name, child in node["files"].items():
+                walk(child, f"{path}/{name}" if path else name)
+        elif node.get("unpacked"):
+            unpacked.append(path)
+
+    walk(header, "")
+    return unpacked
+
+
+def repack_asar(src: Path, out: Path, original_asar: Path = None):
     with tempfile.TemporaryDirectory() as d:
         npm_dir = Path(d)
         (npm_dir / "package.json").write_text("{}")
@@ -214,10 +235,27 @@ def repack_asar(src: Path, out: Path):
         s = str(src).replace("\\", "/")
         o = str(out).replace("\\", "/")
         a = str(asar_lib).replace("\\", "/")
-        unpack = "{**/*.node,**/liblzma.dll,**/lzma-native/**/*}" if SYSTEM == "Windows" else "{**/*.node,**/lzma-native/**/*}"
+
+        if original_asar and original_asar.exists():
+            # Build unpack pattern from the original asar's own unpacked file list
+            # so the repacked header matches exactly what Electron expects.
+            unpacked_files = get_unpacked_files(original_asar)
+            if unpacked_files:
+                escaped = [p.replace("\\", "/").lstrip("/") for p in unpacked_files]
+                unpack = "{" + ",".join(escaped) + "}"
+            else:
+                unpack = None
+        else:
+            unpack = "{**/*.node,**/liblzma.dll,**/lzma-native/**/*}" if SYSTEM == "Windows" else "{**/*.node,**/lzma-native/**/*}"
+
+        if unpack:
+            opts = f"{{unpack:{json.dumps(unpack)}}}"
+        else:
+            opts = "{}"
+
         script = (
             f"require('{a}').createPackageWithOptions('{s}','{o}',"
-            f"{{unpack:'{unpack}'}}"
+            f"{opts}"
             f").then(()=>process.exit(0))"
             f".catch(e=>{{console.error(e);process.exit(1)}});"
         )
@@ -289,7 +327,7 @@ def apply_all_patches(src: Path):
 
     for patch, _ in patches:
         apply_patch(src, patch)
-        print(f"  ✓ {patch['description']}")
+        print(f"  + {patch['description']}")
 
 
 # ─── Self-update ──────────────────────────────────────────────────────────────
@@ -379,9 +417,11 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "asar-src"
+        original_asar = Path(tmp) / "app.original.asar"
+        shutil.copy2(APP_ASAR, original_asar)
         extract_asar(APP_ASAR, src)
         apply_all_patches(src)
-        repack_asar(src, APP_ASAR)
+        repack_asar(src, APP_ASAR, original_asar)
 
     if SYSTEM == "Darwin":
         _resign_mac()

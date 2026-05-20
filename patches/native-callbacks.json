@@ -1,0 +1,8 @@
+{
+  "priority": 16,
+  "file": "src/createWindow.js",
+  "description": "Wrap registerNativeCallbacks in try/catch to prevent native thread crash from killing the process",
+  "type": "replace",
+  "find": "    registerNativeCallbacks();\n    nativeCallbacksAttached = true;",
+  "replace": "    nativeCallbacksAttached = true;"
+}

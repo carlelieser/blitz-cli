@@ -1,0 +1,7 @@
+{
+  "file": "src/autoUpdater/index.js",
+  "description": "pollForUpdates is a no-op (disables background update polling)",
+  "type": "insert_after_regex",
+  "pattern": "function pollForUpdates\\(\\)\\s*\\{",
+  "insert": "\n  return;"
+}
