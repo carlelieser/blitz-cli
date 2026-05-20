@@ -1,4 +1,5 @@
 {
+  "priority": 9,
   "file": "src/autoUpdater/index.js",
   "description": "Skip auto-updater init to prevent force-quit on startup",
   "type": "insert_after_regex",

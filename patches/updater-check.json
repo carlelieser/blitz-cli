@@ -1,4 +1,5 @@
 {
+  "priority": 7,
   "file": "src/autoUpdater/index.js",
   "description": "Skip auto-updater check",
   "type": "insert_after_regex",

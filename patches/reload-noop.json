@@ -1,4 +1,5 @@
 {
+  "priority": 12,
   "file": "src/listeners/bapp.js",
   "description": "No-op WINDOW_RELOAD to prevent page reloads that log the user out",
   "type": "replace",

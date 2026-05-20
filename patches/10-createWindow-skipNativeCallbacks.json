@@ -1,7 +1,0 @@
-{
-  "file": "src/createWindow.js",
-  "description": "Skip registerNativeCallbacks to prevent background thread crash",
-  "type": "replace",
-  "find": "    registerNativeCallbacks();\n    nativeCallbacksAttached = true;",
-  "replace": "    nativeCallbacksAttached = true;"
-}

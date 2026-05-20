@@ -236,12 +236,14 @@ def apply_patch(src: Path, patch: dict):
 
 
 def apply_all_patches(src: Path):
-    patch_files = sorted(PATCHES_DIR.glob("*.json"))
+    patch_files = list(PATCHES_DIR.glob("*.json"))
     if not patch_files:
         raise RuntimeError(f"No patch files found in {PATCHES_DIR}")
 
-    for pf in patch_files:
-        patch = json.loads(pf.read_text("utf-8"))
+    patches = [(json.loads(pf.read_text("utf-8")), pf) for pf in patch_files]
+    patches.sort(key=lambda x: x[0].get("priority", 0))
+
+    for patch, _ in patches:
         apply_patch(src, patch)
         print(f"  ✓ {patch['description']}")
 

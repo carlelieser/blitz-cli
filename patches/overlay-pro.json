@@ -1,4 +1,5 @@
 {
+  "priority": 2,
   "file": "src/gameHandlers/lol/overlaySettings.js",
   "description": "Always return true for pro status check (overlay)",
   "type": "insert_after_regex",

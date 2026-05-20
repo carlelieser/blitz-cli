@@ -1,4 +1,5 @@
 {
+  "priority": 3,
   "file": "src/ota.js",
   "description": "Return current app version instead of fetching from server",
   "type": "insert_after_regex",

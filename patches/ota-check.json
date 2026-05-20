@@ -1,4 +1,5 @@
 {
+  "priority": 4,
   "file": "src/ota.js",
   "description": "Skip OTA update check",
   "type": "insert_after_regex",

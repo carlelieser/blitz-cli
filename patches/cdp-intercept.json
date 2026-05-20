@@ -1,4 +1,5 @@
 {
+  "priority": 10,
   "file": "src/createWindow.js",
   "description": "Intercept network requests via CDP to inject PRO_SUBSCRIBER into auth responses, suppress OTA data to prevent logout-causing reloads, and block ad/tracking domains",
   "type": "replace",
