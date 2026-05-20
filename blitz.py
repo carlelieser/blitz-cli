@@ -282,12 +282,15 @@ def self_update():
                 shutil.copytree(item, dest)
             else:
                 shutil.copy2(item, dest)
-        # Remove local dirs that no longer exist upstream
+        # Remove local items that no longer exist upstream
         for item in install_dir.iterdir():
             if item.name in shims:
                 continue
-            if item.is_dir() and item.name not in upstream_names:
-                shutil.rmtree(item)
+            if item.name not in upstream_names:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
 
     print("✓ Updated")
 
