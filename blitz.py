@@ -271,6 +271,7 @@ def self_update():
 
         src = extract_dir / "blitz-cli-main"
         shims = {"blitz.cmd", "blitz"}  # never overwrite platform shims
+        upstream_names = {item.name for item in src.iterdir()}
         for item in src.iterdir():
             dest = install_dir / item.name
             if item.name in shims:
@@ -281,6 +282,12 @@ def self_update():
                 shutil.copytree(item, dest)
             else:
                 shutil.copy2(item, dest)
+        # Remove local dirs that no longer exist upstream
+        for item in install_dir.iterdir():
+            if item.name in shims:
+                continue
+            if item.is_dir() and item.name not in upstream_names:
+                shutil.rmtree(item)
 
     print("✓ Updated")
 
