@@ -75,6 +75,14 @@ def get_installer_url() -> str:
 
 
 
+def _ok(label: str = "") -> str:
+    return f"  [ok]  {label}" if label else "  [ok]"
+
+
+def _warn(label: str) -> str:
+    return f"  [!]  {label}"
+
+
 def download_file(url: str, dest: Path):
     with requests.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
@@ -220,13 +228,13 @@ def patch_index_node(new_hash: str):
         data = target.read_bytes()
         old_b = _find_embedded_hash(data)
         if not old_b:
-            print(f"  [!]  {target.name}: no embedded hash found — skipping")
+            print(_warn(f"{target.name}: no embedded hash found — skipping"))
             continue
         if old_b == new_b:
-            print(f"  [ok]  {target.name}: already up to date")
+            print(_ok(f"{target.name}: already up to date"))
             continue
         target.write_bytes(data.replace(old_b, new_b, 1))
-        print(f"  [ok]  {target.name}")
+        print(_ok(target.name))
 
 
 def _patch_core_data(data: bytearray) -> tuple:
@@ -360,11 +368,11 @@ def patch_blitz_core():
         changed, msg = _patch_core_data(data)
         if changed:
             target.write_bytes(bytes(data))
-            print(f"  [ok]  {target.name}")
+            print(_ok(target.name))
         elif "already patched" in msg:
-            print(f"  [ok]  {target.name}: already up to date")
+            print(_ok(f"{target.name}: already up to date"))
         else:
-            print(f"  [!]  {target.name}: {msg}")
+            print(_warn(f"{target.name}: {msg}"))
 
 
 def _resign_mac():
@@ -432,9 +440,9 @@ def apply_all_patches(src: Path):
     for patch, pf in patches:
         try:
             apply_patch(src, patch)
-            print(f"  [ok]  {pf.stem}")
+            print(_ok(pf.stem))
         except Exception as e:
-            print(f"  [!]  {pf.stem}: {e}")
+            print(_warn(f"{pf.stem}: {e}"))
 
 
 # ─── Self-update ──────────────────────────────────────────────────────────────
