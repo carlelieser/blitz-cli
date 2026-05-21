@@ -74,6 +74,7 @@ def get_installer_url() -> str:
     return f"{_UPDATE_BASE}/{m.group(1).strip()}"
 
 
+
 def download_file(url: str, dest: Path):
     with requests.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
@@ -86,7 +87,8 @@ def download_file(url: str, dest: Path):
                 if total:
                     pct = done * 100 // total
                     print(f"\r  {pct:3d}%", end="", flush=True)
-    print(f"\r[ok] {Path(url).name} ({dest.stat().st_size / 1_048_576:.0f} MB)")
+    size_mb = dest.stat().st_size / 1_048_576
+    print(f"\r[ok]  {size_mb:.0f} MB")
 
 
 def _install_windows(exe: Path):
@@ -100,7 +102,7 @@ def _install_windows(exe: Path):
 
 def _install_mac(dmg: Path):
     import plistlib
-    print("Mounting disk image ...")
+    print("  Mounting disk image ...", end="", flush=True)
     result = subprocess.run(
         ["hdiutil", "attach", str(dmg), "-nobrowse", "-noverify", "-plist"],
         capture_output=True, check=True,
@@ -123,6 +125,7 @@ def _install_mac(dmg: Path):
         if BLITZ_DIR.exists():
             shutil.rmtree(BLITZ_DIR)
         shutil.copytree(app_src, BLITZ_DIR)
+        print(" [ok]")
     finally:
         subprocess.run(["hdiutil", "detach", mount_point, "-quiet"])
 
@@ -217,13 +220,13 @@ def patch_index_node(new_hash: str):
         data = target.read_bytes()
         old_b = _find_embedded_hash(data)
         if not old_b:
-            print(f"  [warn] no embedded hash found in {target.name} — skipping")
+            print(f"  [!]  {target.name}: no embedded hash found — skipping")
             continue
         if old_b == new_b:
-            print(f"  [ok] {target.name} already up to date")
+            print(f"  [ok]  {target.name}: already up to date")
             continue
         target.write_bytes(data.replace(old_b, new_b, 1))
-        print(f"  [ok] patched {target.name} ({old_b.decode()} -> {new_hash})")
+        print(f"  [ok]  {target.name}")
 
 
 def _patch_core_data(data: bytearray) -> tuple:
@@ -357,10 +360,11 @@ def patch_blitz_core():
         changed, msg = _patch_core_data(data)
         if changed:
             target.write_bytes(bytes(data))
-            print(f"  [ok] patched {target.name} ({msg})")
+            print(f"  [ok]  {target.name}")
+        elif "already patched" in msg:
+            print(f"  [ok]  {target.name}: already up to date")
         else:
-            prefix = "[ok]" if "already patched" in msg else "[warn]"
-            print(f"  {prefix} {target.name}: {msg}")
+            print(f"  [!]  {target.name}: {msg}")
 
 
 def _resign_mac():
@@ -420,15 +424,14 @@ def apply_patch(src: Path, patch: dict):
 def apply_all_patches(src: Path):
     patch_files = list(PATCHES_DIR.glob("*.json"))
     if not patch_files:
-        print("No patches found — skipping")
         return
 
     patches = [(json.loads(pf.read_text("utf-8")), pf) for pf in patch_files]
     patches.sort(key=lambda x: x[0].get("priority", 0))
 
-    for patch, _ in patches:
+    for patch, pf in patches:
         apply_patch(src, patch)
-        print(f"  [ok] {patch['description']}")
+        print(f"  [ok]  {pf.stem}")
 
 
 # ─── Self-update ──────────────────────────────────────────────────────────────
@@ -437,6 +440,7 @@ def self_update():
     install_dir = Path(__file__).parent
     url = "https://github.com/carlelieser/blitz-cli/archive/refs/heads/main.zip"
 
+    print("Downloading update ...", end="", flush=True)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         zip_path = tmp / "blitz-cli.zip"
@@ -446,7 +450,9 @@ def self_update():
             with open(zip_path, "wb") as f:
                 for chunk in r.iter_content(65536):
                     f.write(chunk)
+        print(" [ok]")
 
+        print("Installing update ...", end="", flush=True)
         extract_dir = tmp / "extract"
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(extract_dir)
@@ -473,8 +479,7 @@ def self_update():
                     shutil.rmtree(item)
                 else:
                     item.unlink()
-
-    print("[ok] Updated")
+        print(" [ok]")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -488,54 +493,72 @@ def main():
         return
 
     if command == "install":
+        print("Downloading Blitz ...", end="", flush=True)
         url = get_installer_url()
         tmp = Path(tempfile.mkdtemp())
         installer = tmp / Path(url).name
         download_file(url, installer)
+        print("Installing ...", end="", flush=True)
         install_blitz(installer)
-        print("[ok] Installed")
+        print(" [ok]")
         return
 
     patch_only = command == "patch"
-    installer = None
 
     if patch_only:
         if len(args) > 1:
             installer = Path(args[1])
             if not installer.exists():
                 sys.exit(f"File not found: {installer}")
+            print("Installing ...", end="", flush=True)
             install_blitz(installer)
+            print(" [ok]")
     else:
         if command:
             installer = Path(command)
             if not installer.exists():
                 sys.exit(f"File not found: {installer}")
         else:
+            print("Downloading Blitz ...", end="", flush=True)
             url = get_installer_url()
             tmp = Path(tempfile.mkdtemp())
             installer = tmp / Path(url).name
             download_file(url, installer)
 
+        print("Installing ...", end="", flush=True)
         install_blitz(installer)
-        print("[ok] Installed")
+        print(" [ok]")
 
     if not APP_ASAR.exists():
         sys.exit(f"app.asar not found at {APP_ASAR}")
 
+    patch_files = list(PATCHES_DIR.glob("*.json"))
+
+    print("Extracting app.asar ...", end="", flush=True)
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "asar-src"
         extract_asar(APP_ASAR, src)
-        apply_all_patches(src)
-        repack_asar(src, APP_ASAR)
+        print(" [ok]")
 
+        if patch_files:
+            print("Applying patches ...")
+        apply_all_patches(src)
+
+        print("Repacking app.asar ...", end="", flush=True)
+        repack_asar(src, APP_ASAR)
+        print(" [ok]")
+
+    print("Patching binaries ...")
     new_hash = _sha256_file(APP_ASAR)
     patch_index_node(new_hash)
     patch_blitz_core()
 
     if SYSTEM == "Darwin":
+        print("Re-signing app bundle ...", end="", flush=True)
         _resign_mac()
+        print(" [ok]")
 
-    print("[ok] Patched")
+    print("Done.")
 
 
 if __name__ == "__main__":
