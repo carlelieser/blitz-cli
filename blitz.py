@@ -96,7 +96,7 @@ def download_file(url: str, dest: Path):
                     pct = done * 100 // total
                     print(f"\r  {pct:3d}%", end="", flush=True)
     size_mb = dest.stat().st_size / 1_048_576
-    print(f"\r[ok]  {size_mb:.0f} MB")
+    print(f"\r{_ok(f'{size_mb:.0f} MB')}  ")
 
 
 def _install_windows(exe: Path):
@@ -451,7 +451,7 @@ def self_update():
     install_dir = Path(__file__).parent
     url = "https://github.com/carlelieser/blitz-cli/archive/refs/heads/main.zip"
 
-    print("Downloading update ...", end="", flush=True)
+    print("Downloading update ...")
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         zip_path = tmp / "blitz-cli.zip"
@@ -504,7 +504,7 @@ def main():
         return
 
     if command == "install":
-        print("Downloading Blitz ...", end="", flush=True)
+        print("Downloading Blitz ...")
         url = get_installer_url()
         tmp = Path(tempfile.mkdtemp())
         installer = tmp / Path(url).name
@@ -530,7 +530,7 @@ def main():
             if not installer.exists():
                 sys.exit(f"File not found: {installer}")
         else:
-            print("Downloading Blitz ...", end="", flush=True)
+            print("Downloading Blitz ...")
             url = get_installer_url()
             tmp = Path(tempfile.mkdtemp())
             installer = tmp / Path(url).name
