@@ -504,10 +504,9 @@ def main():
         return
 
     if command == "install":
-        print("Downloading Blitz ...")
         url = get_installer_url()
-        tmp = Path(tempfile.mkdtemp())
-        installer = tmp / Path(url).name
+        installer = Path(tempfile.mkdtemp()) / Path(url).name
+        print(f"Downloading {installer.name} ...")
         download_file(url, installer)
         print("Installing ...", end="", flush=True)
         install_blitz(installer)
@@ -530,10 +529,9 @@ def main():
             if not installer.exists():
                 sys.exit(f"File not found: {installer}")
         else:
-            print("Downloading Blitz ...")
             url = get_installer_url()
-            tmp = Path(tempfile.mkdtemp())
-            installer = tmp / Path(url).name
+            installer = Path(tempfile.mkdtemp()) / Path(url).name
+            print(f"Downloading {installer.name} ...")
             download_file(url, installer)
 
         print("Installing ...", end="", flush=True)
