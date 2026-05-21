@@ -339,21 +339,27 @@ def _patch_core_data(data: bytearray) -> tuple:
     if not func_starts:
         return False, "could not locate VerifyApp function via string reference"
 
+    # MOV EAX, 1 (B8 01 00 00 00) + RET (C3) — return "verified ok" so callers
+    # don't interpret a false/garbage return as verification failure and disable
+    # overlay injection or other features gated on this check.
+    STUB = b'\xB8\x01\x00\x00\x00\xC3'
+
     changed = False
     msg_parts = []
     for fs in func_starts:
-        if data[fs] == 0xC3:
+        if bytes(data[fs:fs + len(STUB)]) == STUB:
             msg_parts.append(f"already patched at 0x{fs:x}")
             continue
-        data[fs] = 0xC3  # RET
+        for k, b in enumerate(STUB):
+            data[fs + k] = b
         # NOP the rest of the prologue bytes up to the next CC boundary
-        j = fs + 1
+        j = fs + len(STUB)
         while j < len(data) and data[j] != 0xCC:
             data[j] = 0x90
             j += 1
             if j - fs >= 32:  # cap at 32 bytes; don't NOP into the whole function
                 break
-        msg_parts.append(f"disabled at 0x{fs:x}")
+        msg_parts.append(f"patched at 0x{fs:x}")
         changed = True
 
     return changed, "; ".join(msg_parts)
@@ -505,19 +511,19 @@ def self_update():
 def patch_app():
     patch_files = list(PATCHES_DIR.glob("*.json"))
 
-    print("Extracting app.asar ...", end="", flush=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        src = Path(tmp) / "asar-src"
-        extract_asar(APP_ASAR, src)
-        print(_ok())
+    if patch_files:
+        print("Extracting app.asar ...", end="", flush=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "asar-src"
+            extract_asar(APP_ASAR, src)
+            print(_ok())
 
-        if patch_files:
             print("Applying patches ...")
-        apply_all_patches(src)
+            apply_all_patches(src)
 
-        print("Repacking app.asar ...", end="", flush=True)
-        repack_asar(src, APP_ASAR)
-        print(_ok())
+            print("Repacking app.asar ...", end="", flush=True)
+            repack_asar(src, APP_ASAR)
+            print(_ok())
 
     print("Patching binaries ...")
     new_hash = _sha256_file(APP_ASAR)
