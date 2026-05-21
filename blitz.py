@@ -84,6 +84,7 @@ def _warn(label: str) -> str:
 
 
 def download_file(url: str, dest: Path):
+    print(f"Downloading {dest.name} ...")
     with requests.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
@@ -100,9 +101,11 @@ def download_file(url: str, dest: Path):
 
 
 def _install_windows(exe: Path):
+    print("Installing ...", end="", flush=True)
     subprocess.run([str(exe), "/S"], check=True)
     for _ in range(60):
         if APP_ASAR.exists():
+            print(_ok())
             return
         time.sleep(2)
     raise RuntimeError("Timed out — app.asar not found after install")
@@ -110,11 +113,13 @@ def _install_windows(exe: Path):
 
 def _install_mac(dmg: Path):
     import plistlib
+    print("Installing ...")
     print("  Mounting disk image ...", end="", flush=True)
     result = subprocess.run(
         ["hdiutil", "attach", str(dmg), "-nobrowse", "-noverify", "-plist"],
         capture_output=True, check=True,
     )
+    print(_ok())
     # hdiutil may emit non-plist bytes before the XML; find where it starts
     stdout = result.stdout
     xml_start = stdout.find(b"<?xml")
@@ -133,15 +138,17 @@ def _install_mac(dmg: Path):
         if BLITZ_DIR.exists():
             shutil.rmtree(BLITZ_DIR)
         shutil.copytree(app_src, BLITZ_DIR)
-        print(" [ok]")
+        print(_ok())
     finally:
         subprocess.run(["hdiutil", "detach", mount_point, "-quiet"])
 
 
 def _install_linux(deb: Path):
+    print("Installing ...", end="", flush=True)
     subprocess.run(["sudo", "dpkg", "-i", str(deb)], check=True)
     if not APP_ASAR.exists():
         raise RuntimeError(f"app.asar not found at {APP_ASAR} after install")
+    print(_ok())
 
 
 def install_blitz(installer: Path):
@@ -214,7 +221,8 @@ def _find_embedded_hash(data: bytes):
 def patch_index_node(new_hash: str):
     new_b = new_hash.encode("ascii")
     binaries_dir = BLITZ_DIR / "resources" / "binaries"
-    targets = [binaries_dir / "index.node"]
+    primary = binaries_dir / "index.node"
+    targets = [primary] if primary.exists() else []
 
     if SYSTEM == "Windows":
         deps_base = Path(os.environ["APPDATA"]) / "Blitz" / "blitz-deps"
@@ -353,7 +361,8 @@ def _patch_core_data(data: bytearray) -> tuple:
 
 def patch_blitz_core():
     binaries_dir = BLITZ_DIR / "resources" / "binaries"
-    targets = [binaries_dir / "blitz_core.node"]
+    primary = binaries_dir / "blitz_core.node"
+    targets = [primary] if primary.exists() else []
 
     if SYSTEM == "Windows":
         deps_base = Path(os.environ["APPDATA"]) / "Blitz" / "blitz-deps"
@@ -493,6 +502,36 @@ def self_update():
         print(" [ok]")
 
 
+def patch_app():
+    patch_files = list(PATCHES_DIR.glob("*.json"))
+
+    print("Extracting app.asar ...", end="", flush=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "asar-src"
+        extract_asar(APP_ASAR, src)
+        print(_ok())
+
+        if patch_files:
+            print("Applying patches ...")
+        apply_all_patches(src)
+
+        print("Repacking app.asar ...", end="", flush=True)
+        repack_asar(src, APP_ASAR)
+        print(_ok())
+
+    print("Patching binaries ...")
+    new_hash = _sha256_file(APP_ASAR)
+    patch_index_node(new_hash)
+    patch_blitz_core()
+
+    if SYSTEM == "Darwin":
+        print("Re-signing app bundle ...", end="", flush=True)
+        _resign_mac()
+        print(_ok())
+
+    print("Done.")
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -506,11 +545,8 @@ def main():
     if command == "install":
         url = get_installer_url()
         installer = Path(tempfile.mkdtemp()) / Path(url).name
-        print(f"Downloading {installer.name} ...")
         download_file(url, installer)
-        print("Installing ...", end="", flush=True)
         install_blitz(installer)
-        print(" [ok]")
         return
 
     patch_only = command == "patch"
@@ -520,9 +556,7 @@ def main():
             installer = Path(args[1])
             if not installer.exists():
                 sys.exit(f"File not found: {installer}")
-            print("Installing ...", end="", flush=True)
             install_blitz(installer)
-            print(" [ok]")
     else:
         if command:
             installer = Path(command)
@@ -531,43 +565,14 @@ def main():
         else:
             url = get_installer_url()
             installer = Path(tempfile.mkdtemp()) / Path(url).name
-            print(f"Downloading {installer.name} ...")
             download_file(url, installer)
 
-        print("Installing ...", end="", flush=True)
         install_blitz(installer)
-        print(" [ok]")
 
     if not APP_ASAR.exists():
         sys.exit(f"app.asar not found at {APP_ASAR}")
 
-    patch_files = list(PATCHES_DIR.glob("*.json"))
-
-    print("Extracting app.asar ...", end="", flush=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        src = Path(tmp) / "asar-src"
-        extract_asar(APP_ASAR, src)
-        print(" [ok]")
-
-        if patch_files:
-            print("Applying patches ...")
-        apply_all_patches(src)
-
-        print("Repacking app.asar ...", end="", flush=True)
-        repack_asar(src, APP_ASAR)
-        print(" [ok]")
-
-    print("Patching binaries ...")
-    new_hash = _sha256_file(APP_ASAR)
-    patch_index_node(new_hash)
-    patch_blitz_core()
-
-    if SYSTEM == "Darwin":
-        print("Re-signing app bundle ...", end="", flush=True)
-        _resign_mac()
-        print(" [ok]")
-
-    print("Done.")
+    patch_app()
 
 
 if __name__ == "__main__":
