@@ -430,8 +430,11 @@ def apply_all_patches(src: Path):
     patches.sort(key=lambda x: x[0].get("priority", 0))
 
     for patch, pf in patches:
-        apply_patch(src, patch)
-        print(f"  [ok]  {pf.stem}")
+        try:
+            apply_patch(src, patch)
+            print(f"  [ok]  {pf.stem}")
+        except Exception as e:
+            print(f"  [!]  {pf.stem}: {e}")
 
 
 # ─── Self-update ──────────────────────────────────────────────────────────────
