@@ -1,7 +1,0 @@
-{
-  "file": "src/ota.js",
-  "description": "getVersion returns current app version instead of fetching OTA version",
-  "type": "insert_after_regex",
-  "pattern": "async getVersion\\(\\)\\s*\\{",
-  "insert": "\n    return app.getVersion();"
-}

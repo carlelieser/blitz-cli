@@ -1,8 +1,0 @@
-{
-  "priority": 13,
-  "file": "src/createWindow.js",
-  "description": "Hide ad slot elements, remove ad-reserved width from CSS, restore content to full width, and reapply on SPA navigation via MutationObserver",
-  "type": "insert_after_regex",
-  "pattern": "browserView\\.webContents\\.loadURL\\(url\\);",
-  "insert": "\n  browserView.webContents.on(\"did-finish-load\", () => {\n    browserView.webContents.executeJavaScript(\n      \"(function() { var sel = '[class*=\\\"\\\\uD83E\\\\uDD11-column\\\"],[class*=\\\"\\\\uD83E\\\\uDD11-container\\\"],[class*=\\\"display-\\\\uD83E\\\\uDD11\\\"]'; var obs; function clean() { obs.disconnect(); document.querySelectorAll(sel).forEach(function(el) { el.style.setProperty('display', 'none', 'important'); }); var xp = document.evaluate('/html/body/main/div[1]/div[3]/div[2]/div[1]/div/div[1]/div/div[2]/div/div[2]/section[2]/div/div[3]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; if (xp) xp.style.setProperty('display', 'none', 'important'); Array.from(document.styleSheets).forEach(function(ss) { try { Array.from(ss.cssRules).forEach(function(rule) { if (rule.style && rule.style.width && rule.style.width.includes('--sp-container')) { rule.style.removeProperty('width'); } }); } catch(e) {} }); document.querySelectorAll('#main-content > div, .route-wrapper').forEach(function(el) { el.style.setProperty('width', '100%', 'important'); }); obs.observe(document.documentElement, { childList: true, subtree: true }); } obs = new MutationObserver(clean); obs.observe(document.documentElement, { childList: true, subtree: true }); }());\"\n    ).catch(function() {});\n  });"
-}

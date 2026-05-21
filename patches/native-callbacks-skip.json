@@ -1,8 +1,0 @@
-{
-  "priority": 16,
-  "file": "src/createWindow.js",
-  "description": "Skip registerNativeCallbacks to prevent its native background thread from crashing the process",
-  "type": "replace",
-  "find": "    registerNativeCallbacks();\n    nativeCallbacksAttached = true;",
-  "replace": "    nativeCallbacksAttached = true;"
-}

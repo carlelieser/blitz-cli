@@ -1,7 +1,0 @@
-{
-  "file": "src/ota.js",
-  "description": "pollForUpdates is a no-op (disables periodic OTA polling)",
-  "type": "insert_after_regex",
-  "pattern": "pollForUpdates\\([^)]*\\)\\s*\\{",
-  "insert": "\n    return null;"
-}
