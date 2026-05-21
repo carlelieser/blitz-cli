@@ -333,7 +333,7 @@ def _patch_core_data(data: bytearray) -> tuple:
                     candidate += 1
                 # Sanity-check: common x64 prologue first bytes, or 0xC3 if
                 # already patched to RET by a previous run.
-                if data[candidate] in (0x40, 0x41, 0x48, 0x53, 0x55, 0x56, 0x57, 0xC3):
+                if data[candidate] in (0x40, 0x41, 0x48, 0x53, 0x55, 0x56, 0x57, 0xB8, 0xC3):
                     func_starts.add(candidate)
 
     if not func_starts:
