@@ -368,44 +368,49 @@ def patch_index_node(new_hash: str):
 
 def _patch_core_data(data: bytearray) -> tuple:
     """
-    Patch the tamper-detection gate inside VerifyApp in blitz_core.node.
+    Bypass the E6 integrity check inside VerifyApp in blitz_core.node.
 
-    VerifyApp reads a global flag then conditionally jumps over a ~8 KB
-    security-check block.  We make that jump unconditional so the hash-check
-    crash is bypassed while ALL initialization code (including the overlay
-    renderer setup) still runs.
+    VerifyApp runs a ~8 KB security block that both verifies the asar hash
+    AND initializes the overlay renderer.  An older approach replaced the
+    conditional branch at the block entry with an unconditional JMP, which
+    skipped the block entirely — preventing overlay initialization.
+
+    The correct fix is narrower: a specific sub-check inside VerifyApp
+    compares an API return value with 0x6D and crashes with "E6 Error" when
+    it matches.  We patch that conditional JNZ to an unconditional JMP so
+    the E6 path is never taken while the rest of the block (including overlay
+    setup) still runs normally.
 
     Secondary: revert any old entry-stub (MOV EAX,0; RET) that a previous
-    version of blitz-cli may have written, since the stub also skips init.
+    version of blitz-cli may have written, since the stub skips all of init.
     """
     raw = bytes(data)
     changed = False
     msgs = []
 
-    # ── Primary: JZ → unconditional JMP inside VerifyApp ─────────────────────
-    # NOP (90) + TEST AL,AL (84 C0) + JZ rel32 with disp 0x0000202D (0F 84 2D 20 00 00)
-    JZ_PATTERN = bytes([0x90, 0x84, 0xC0, 0x0F, 0x84, 0x2D, 0x20, 0x00, 0x00])
-    # JMP near rel32 disp 0x0000202E + NOP pad (JMP is 5 bytes; JZ was 6 bytes,
-    # so displacement increases by 1 to reach the same target address)
-    JMP_PATCH  = bytes([0x90, 0x84, 0xC0, 0xE9, 0x2E, 0x20, 0x00, 0x00, 0x90])
+    # ── Primary: bypass E6 sub-check inside VerifyApp ────────────────────────
+    # CMP EAX, 0x6D (83 F8 6D) + JNZ rel32 (0F 85 [disp4])
+    # → replace JNZ with unconditional JMP (E9 [disp+1]) + NOP pad
+    # (JMP is 5 bytes vs JNZ 6 bytes, so displacement increases by 1)
+    E6_CMP    = bytes([0x83, 0xF8, 0x6D, 0x0F, 0x85])  # CMP EAX,0x6D + JNZ prefix
+    E6_BYPASS = bytes([0x83, 0xF8, 0x6D, 0xE9])         # CMP EAX,0x6D + JMP prefix
 
-    jz_pos = raw.find(JZ_PATTERN)
-    if jz_pos != -1:
-        for k, b in enumerate(JMP_PATCH):
-            data[jz_pos + k] = b
+    pos = raw.find(E6_CMP)
+    if pos != -1:
+        old_disp = int.from_bytes(raw[pos + 5:pos + 9], "little", signed=True)
+        new_disp = (old_disp + 1).to_bytes(4, "little", signed=True)
+        data[pos + 3] = 0xE9
+        data[pos + 4:pos + 8] = new_disp
+        data[pos + 8] = 0x90
         raw = bytes(data)
         changed = True
-        msgs.append(f"patched security gate at 0x{jz_pos:x}")
-    elif raw.find(JMP_PATCH) != -1:
-        msgs.append(f"already patched at 0x{raw.find(JMP_PATCH):x}")
+        msgs.append(f"bypassed E6 check at 0x{pos:x}")
+    elif raw.find(E6_BYPASS) != -1:
+        msgs.append(f"E6 bypass already applied at 0x{raw.find(E6_BYPASS):x}")
     else:
-        msgs.append("could not locate security gate (JZ pattern not found)")
-        return False, "; ".join(msgs)
+        msgs.append("E6 check pattern not found — skipping")
 
     # ── Secondary: revert old entry stub so VerifyApp can actually run ────────
-    # Previous versions of blitz-cli wrote MOV EAX,0; RET at the function entry.
-    # That prevents any initialization from running, breaking the overlay.
-    # Original first 6 bytes of VerifyApp (x64 prologue push sequence):
     OLD_STUB      = bytes([0xB8, 0x00, 0x00, 0x00, 0x00, 0xC3])
     ORIG_PROLOGUE = bytes([0x40, 0x55, 0x53, 0x56, 0x57, 0x41])
     idx = 0
@@ -690,6 +695,7 @@ def main():
     print("Patching binaries ...")
     new_hash = _sha256_file(APP_ASAR)
     patch_index_node(new_hash)
+    patch_blitz_core()
 
     if SYSTEM == "Darwin":
         print("Re-signing app bundle ...", end="", flush=True)
