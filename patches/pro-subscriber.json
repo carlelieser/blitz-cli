@@ -1,0 +1,8 @@
+{
+  "priority": 5,
+  "file": "src/auth.js",
+  "description": "Inject PRO_SUBSCRIBER role into every fetchUser() response so main-process game handlers (Apex, CSGO, Valorant, window sizing) see the user as premium",
+  "type": "replace",
+  "find": "  return axios(AUTH_GRAPHQL_URL, options)\n    .then((r) => r?.data?.data?.me)\n    .catch((e) =>\n      log.error(\"[core]\", \"[AUTH] Fetch user error\", e?.response?.data?.errors)\n    );",
+  "replace": "  return axios(AUTH_GRAPHQL_URL, options)\n    .then((r) => {\n      const _me = r?.data?.data?.me;\n      if (_me && Array.isArray(_me.roles) && !_me.roles.some((_r) => _r.code === \"PRO_SUBSCRIBER\")) {\n        _me.roles.push({ code: \"PRO_SUBSCRIBER\" });\n      }\n      return _me;\n    })\n    .catch((e) =>\n      log.error(\"[core]\", \"[AUTH] Fetch user error\", e?.response?.data?.errors)\n    );"
+}

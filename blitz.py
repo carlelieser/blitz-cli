@@ -41,6 +41,8 @@ else:  # Linux
     APP_ASAR  = BLITZ_DIR / "resources" / "app.asar"
     INSTALLER_EXT = ".deb"
 
+ORIG_ASAR = APP_ASAR.parent / (APP_ASAR.name + ".orig")
+
 
 # ─── Download & Install ───────────────────────────────────────────────────────
 
@@ -591,6 +593,25 @@ def self_update():
         print(" [ok]")
 
 
+def _save_orig_asar():
+    """Save a pristine copy of app.asar before the first patch run."""
+    if not ORIG_ASAR.exists():
+        shutil.copy2(APP_ASAR, ORIG_ASAR)
+        print(_ok("saved original app.asar"))
+
+
+def _restore_orig_asar():
+    """
+    Always patch from the pristine original so patch runs are idempotent.
+    If no backup exists yet, treat the current app.asar as original and save it.
+    """
+    if not ORIG_ASAR.exists():
+        shutil.copy2(APP_ASAR, ORIG_ASAR)
+        print(_ok("saved original app.asar"))
+    else:
+        shutil.copy2(ORIG_ASAR, APP_ASAR)
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -609,6 +630,8 @@ def main():
         print("Installing ...", end="", flush=True)
         install_blitz(installer)
         print(" [ok]")
+        ORIG_ASAR.unlink(missing_ok=True)
+        _save_orig_asar()
         return
 
     patch_only = command == "patch"
@@ -621,6 +644,7 @@ def main():
             print("Installing ...", end="", flush=True)
             install_blitz(installer)
             print(" [ok]")
+            ORIG_ASAR.unlink(missing_ok=True)
     else:
         if command:
             installer = Path(command)
@@ -635,6 +659,7 @@ def main():
         print("Installing ...", end="", flush=True)
         install_blitz(installer)
         print(" [ok]")
+        ORIG_ASAR.unlink(missing_ok=True)
 
     if not APP_ASAR.exists():
         sys.exit(f"app.asar not found at {APP_ASAR}")
@@ -647,6 +672,8 @@ def main():
     patch_files = list(PATCHES_DIR.glob("*.json"))
 
     if patch_files:
+        _restore_orig_asar()
+
         print("Extracting app.asar ...", end="", flush=True)
         all_files, unpacked = _asar_paths(APP_ASAR)
         unpack_glob = _unpack_glob_from_paths(all_files, unpacked)
