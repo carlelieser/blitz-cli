@@ -395,8 +395,12 @@ def _patch_core_data(data: bytearray) -> tuple:
     E6_CMP    = bytes([0x83, 0xF8, 0x6D, 0x0F, 0x85])  # CMP EAX,0x6D + JNZ prefix
     E6_BYPASS = bytes([0x83, 0xF8, 0x6D, 0xE9])         # CMP EAX,0x6D + JMP prefix
 
-    pos = raw.find(E6_CMP)
-    if pos != -1:
+    idx = 0
+    e6_found = 0
+    while True:
+        pos = raw.find(E6_CMP, idx)
+        if pos == -1:
+            break
         old_disp = int.from_bytes(raw[pos + 5:pos + 9], "little", signed=True)
         new_disp = (old_disp + 1).to_bytes(4, "little", signed=True)
         data[pos + 3] = 0xE9
@@ -404,11 +408,14 @@ def _patch_core_data(data: bytearray) -> tuple:
         data[pos + 8] = 0x90
         raw = bytes(data)
         changed = True
+        e6_found += 1
         msgs.append(f"bypassed E6 check at 0x{pos:x}")
-    elif raw.find(E6_BYPASS) != -1:
-        msgs.append(f"E6 bypass already applied at 0x{raw.find(E6_BYPASS):x}")
-    else:
-        msgs.append("E6 check pattern not found — skipping")
+        idx = pos + 9
+    if e6_found == 0:
+        if raw.find(E6_BYPASS) != -1:
+            msgs.append("E6 bypass already applied")
+        else:
+            msgs.append("E6 check pattern not found — skipping")
 
     # ── Secondary: revert old entry stub so VerifyApp can actually run ────────
     OLD_STUB      = bytes([0xB8, 0x00, 0x00, 0x00, 0x00, 0xC3])
