@@ -160,6 +160,28 @@ def _kill_blitz():
         subprocess.run(["pkill", "-f", "blitz"], capture_output=True)
 
 
+def _flush_squirrel_restart():
+    """After a fresh Squirrel install, Blitz auto-restarts once ~60-90 s after first
+    launch (first-run setup). Pre-trigger it now so it never fires mid-game."""
+    blitz_exe = BLITZ_DIR / "Blitz.exe"
+    if not blitz_exe.exists():
+        return
+    print("Flushing Blitz first-run restart ...", end="", flush=True)
+    proc = subprocess.Popen([str(blitz_exe)])
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        time.sleep(5)
+        r = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {proc.pid}", "/NH"],
+            capture_output=True, text=True,
+        )
+        if str(proc.pid) not in r.stdout:
+            time.sleep(8)
+            break
+    _kill_blitz()
+    print(_ok())
+
+
 def install_blitz(installer: Path):
     _kill_blitz()
     if SYSTEM == "Windows":
@@ -698,6 +720,9 @@ def main():
         print("Re-signing app bundle ...", end="", flush=True)
         _resign_mac()
         print(" [ok]")
+
+    if not patch_only and SYSTEM == "Windows":
+        _flush_squirrel_restart()
 
     print("Done.")
 
