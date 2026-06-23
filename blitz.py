@@ -84,7 +84,6 @@ def _warn(label: str) -> str:
 
 
 def download_file(url: str, dest: Path):
-    print(f"Downloading {dest.name} ...")
     with requests.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
@@ -101,11 +100,9 @@ def download_file(url: str, dest: Path):
 
 
 def _install_windows(exe: Path):
-    print("Installing ...", end="", flush=True)
     subprocess.run([str(exe), "/S"], check=True)
     for _ in range(60):
         if APP_ASAR.exists():
-            print(_ok())
             return
         time.sleep(2)
     raise RuntimeError("Timed out — app.asar not found after install")
@@ -113,13 +110,11 @@ def _install_windows(exe: Path):
 
 def _install_mac(dmg: Path):
     import plistlib
-    print("Installing ...")
     print("  Mounting disk image ...", end="", flush=True)
     result = subprocess.run(
         ["hdiutil", "attach", str(dmg), "-nobrowse", "-noverify", "-plist"],
         capture_output=True, check=True,
     )
-    print(_ok())
     # hdiutil may emit non-plist bytes before the XML; find where it starts
     stdout = result.stdout
     xml_start = stdout.find(b"<?xml")
@@ -138,20 +133,33 @@ def _install_mac(dmg: Path):
         if BLITZ_DIR.exists():
             shutil.rmtree(BLITZ_DIR)
         shutil.copytree(app_src, BLITZ_DIR)
-        print(_ok())
+        print(" [ok]")
     finally:
         subprocess.run(["hdiutil", "detach", mount_point, "-quiet"])
 
 
 def _install_linux(deb: Path):
-    print("Installing ...", end="", flush=True)
     subprocess.run(["sudo", "dpkg", "-i", str(deb)], check=True)
     if not APP_ASAR.exists():
         raise RuntimeError(f"app.asar not found at {APP_ASAR} after install")
-    print(_ok())
+
+
+def _kill_blitz():
+    """Terminate any running Blitz processes so they cannot write stale file
+    offsets to index.node between our install and our asar repack."""
+    if SYSTEM == "Windows":
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "Blitz.exe", "/T"],
+            capture_output=True,
+        )
+    elif SYSTEM == "Darwin":
+        subprocess.run(["pkill", "-f", "Blitz.app"], capture_output=True)
+    else:
+        subprocess.run(["pkill", "-f", "blitz"], capture_output=True)
 
 
 def install_blitz(installer: Path):
+    _kill_blitz()
     if SYSTEM == "Windows":
         _install_windows(installer)
     elif SYSTEM == "Darwin":
@@ -177,7 +185,111 @@ def extract_asar(src: Path, dest: Path):
     )
 
 
-def repack_asar(src: Path, out: Path):
+def _asar_paths(asar_path: Path) -> tuple:
+    """
+    Parse the asar header and return (all_files: set, unpacked_files: set)
+    where each element is a forward-slash relative path.
+    """
+    with open(asar_path, "rb") as f:
+        data = f.read(1024 * 1024)
+    json_len = struct.unpack_from("<I", data, 12)[0]
+    header = json.loads(data[16 : 16 + json_len])
+
+    all_files: set = set()
+    unpacked: set = set()
+
+    def walk(node, prefix=""):
+        for name, entry in node.get("files", {}).items():
+            rel = f"{prefix}/{name}" if prefix else name
+            if "files" in entry:
+                walk(entry, rel)
+            else:
+                all_files.add(rel)
+                if entry.get("unpacked"):
+                    unpacked.add(rel)
+
+    walk(header)
+    return all_files, unpacked
+
+
+def _unpack_glob_from_paths(all_files: set, unpacked: set) -> str:
+    """
+    Derive minimal **/dir/** glob patterns for the originally-unpacked files.
+
+    @electron/asar calls minimatch(absoluteFilePath, pattern, {matchBase:true})
+    so patterns must start with '**/' to match anywhere in the full path.
+
+    We only mark a directory as "fully unpacked" when EVERY file under it in
+    the asar (packed + unpacked) is in the unpacked set, preventing the common
+    mistake of marking 'node_modules' as fully unpacked when only two of its
+    many subdirectories are unpacked.
+    """
+    from collections import defaultdict
+
+    # Build children maps from the FULL file list (not just unpacked)
+    all_dir_children: dict = defaultdict(set)
+    for p in all_files:
+        parts = p.split("/")
+        for depth in range(1, len(parts)):
+            parent = "/".join(parts[:depth])
+            child  = "/".join(parts[:depth + 1])
+            all_dir_children[parent].add(child)
+
+    fully_unpacked: set = set()
+
+    def is_full(node: str) -> bool:
+        if node in fully_unpacked:
+            return True
+        children = all_dir_children.get(node)
+        if not children:
+            return node in unpacked
+        result = all(is_full(c) for c in children)
+        if result:
+            fully_unpacked.add(node)
+        return result
+
+    for d in list(all_dir_children):
+        is_full(d)
+
+    # Minimal set: fully-unpacked dirs whose parent is not fully unpacked
+    minimal: list = []
+    for d in sorted(fully_unpacked):
+        parts = d.split("/")
+        parent = "/".join(parts[:-1])
+        if parent not in fully_unpacked:
+            minimal.append(f"**/{d}/**")
+
+    # Add individual unpacked files not already covered by a directory glob
+    covered: set = set()
+    for g in minimal:
+        bare = g.removeprefix("**/")[:-3]
+        for p in unpacked:
+            if p == bare or p.startswith(bare + "/"):
+                covered.add(p)
+    for p in unpacked:
+        if p not in covered:
+            minimal.append(f"**/{p}")
+
+    if not minimal:
+        return ""
+    if len(minimal) == 1:
+        return minimal[0]
+    return "{" + ",".join(minimal) + "}"
+
+
+def repack_asar(src: Path, out: Path, unpack_glob: str):
+    # Preserve the installer-placed app.asar.unpacked/ files.  @electron/asar
+    # overwrites them with fresh temp-dir copies that Windows may treat as less
+    # trusted (different security attributes), causing blitz_core.node to crash
+    # when it loads the DLLs.  We back up the originals, let the repack run
+    # (so the new asar header correctly marks files as unpacked), then restore.
+    unpacked_dir = out.parent / (out.name + ".unpacked")
+    backup_dir = out.parent / (out.name + ".unpacked.bak")
+    if unpacked_dir.exists():
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        shutil.copytree(unpacked_dir, backup_dir)
+
     with tempfile.TemporaryDirectory() as d:
         npm_dir = Path(d)
         (npm_dir / "package.json").write_text("{}")
@@ -189,14 +301,22 @@ def repack_asar(src: Path, out: Path):
         s = str(src).replace("\\", "/")
         o = str(out).replace("\\", "/")
         a = str(asar_lib).replace("\\", "/")
-        unpack = "node_modules/**/*.{node,dll}"
+        # JSON-encode the glob so special chars are safe inside the JS string literal
+        glob_json = json.dumps(unpack_glob)
         script = (
             f"require('{a}').createPackageWithOptions('{s}','{o}',"
-            f"{{unpack:'{unpack}',unpackDir:'node_modules/lzma-native'}}"
+            f"{{unpack:{glob_json}}}"
             f").then(()=>process.exit(0))"
             f".catch(e=>{{console.error(e);process.exit(1)}});"
         )
         subprocess.run([_require("node"), "-e", script], check=True)
+
+    # Restore the original installer-placed unpacked files
+    if backup_dir.exists():
+        if unpacked_dir.exists():
+            shutil.rmtree(unpacked_dir)
+        shutil.copytree(backup_dir, unpacked_dir)
+        shutil.rmtree(backup_dir)
 
 
 def _sha256_file(path: Path) -> str:
@@ -221,8 +341,7 @@ def _find_embedded_hash(data: bytes):
 def patch_index_node(new_hash: str):
     new_b = new_hash.encode("ascii")
     binaries_dir = BLITZ_DIR / "resources" / "binaries"
-    primary = binaries_dir / "index.node"
-    targets = [primary] if primary.exists() else []
+    targets = [binaries_dir / "index.node"]
 
     if SYSTEM == "Windows":
         deps_base = Path(os.environ["APPDATA"]) / "Blitz" / "blitz-deps"
@@ -247,128 +366,89 @@ def patch_index_node(new_hash: str):
 
 def _patch_core_data(data: bytearray) -> tuple:
     """
-    Locate the VerifyApp function by finding the 'VerifyApp' string literal and
-    tracing the RIP-relative LEA instruction that loads it, then walking back to
-    the CC-padded function boundary. Returns (changed: bool, message: str).
+    Patch the tamper-detection gate inside VerifyApp in blitz_core.node.
 
-    This approach is version-stable: the string must exist for the function to
-    work, so it survives recompilation even when the surrounding machine code
-    changes completely.
+    VerifyApp reads a global flag then conditionally jumps over a ~8 KB
+    security-check block.  We make that jump unconditional so the hash-check
+    crash is bypassed while ALL initialization code (including the overlay
+    renderer setup) still runs.
+
+    Secondary: revert any old entry-stub (MOV EAX,0; RET) that a previous
+    version of blitz-cli may have written, since the stub also skips init.
     """
-    # ── PE header parsing ──────────────────────────────────────────────────────
-    if len(data) < 0x40 or data[0:2] != b'MZ':
-        return False, "not a PE/MZ file"
-    pe_off = struct.unpack_from('<I', data, 0x3c)[0]
-    if data[pe_off:pe_off+4] != b'PE\0\0':
-        return False, "invalid PE signature"
-    coff     = pe_off + 4
-    nsec     = struct.unpack_from('<H', data, coff + 2)[0]
-    opt_size = struct.unpack_from('<H', data, coff + 16)[0]
-    opt      = coff + 20
-    if struct.unpack_from('<H', data, opt)[0] != 0x20b:
-        return False, "not a PE32+ binary"
-    image_base = struct.unpack_from('<Q', data, opt + 24)[0]
-
-    # Section table: each entry is 40 bytes
-    # +8 VirtualSize, +12 VirtualAddress (RVA), +16 SizeOfRawData, +20 PointerToRawData
-    sec_base = opt + opt_size
-    sections = []
-    for i in range(nsec):
-        s      = sec_base + i * 40
-        vsize  = struct.unpack_from('<I', data, s + 8)[0]
-        vaddr  = struct.unpack_from('<I', data, s + 12)[0]
-        rsize  = struct.unpack_from('<I', data, s + 16)[0]
-        roff   = struct.unpack_from('<I', data, s + 20)[0]
-        sections.append((vaddr, max(vsize, rsize), roff, rsize))
-
-    def file_to_va(off):
-        for vaddr, span, roff, rsize in sections:
-            if roff <= off < roff + rsize:
-                return image_base + vaddr + (off - roff)
-        return None
-
-    # ── Find "VerifyApp" string (ASCII then UTF-16LE) ─────────────────────────
     raw = bytes(data)
-    str_off = raw.find(b'VerifyApp\x00')
-    if str_off == -1:
-        str_off = raw.find('VerifyApp\x00'.encode('utf-16-le'))
-    if str_off == -1:
-        return False, "VerifyApp string not found in binary"
-    str_va = file_to_va(str_off)
-    if str_va is None:
-        return False, "VerifyApp string not mapped to any PE section"
-
-    # ── Find LEA reg, [RIP+disp32] instructions that reference the string ─────
-    # Encoding: 48 8D <ModRM> <disp32>  where ModRM byte 0x05 field = RIP-relative
-    # Valid ModRM bytes for RIP-relative: 05,0D,15,1D,25,2D,35,3D
-    LEA_MODRM = {0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D}
-    func_starts = set()
-
-    for i in range(len(data) - 7):
-        if data[i] == 0x48 and data[i+1] == 0x8D and data[i+2] in LEA_MODRM:
-            disp = struct.unpack_from('<i', data, i + 3)[0]
-            instr_va = file_to_va(i)
-            if instr_va is None:
-                continue
-            # RIP points to the next instruction (7 bytes after LEA start)
-            if instr_va + 7 + disp == str_va:
-                # Walk backward from the LEA to find the CC-padded function
-                # boundary. Require 2+ consecutive CC bytes to distinguish
-                # real inter-function padding from lone INT3s in code.
-                pos = i - 1
-                found = False
-                while pos > 1:
-                    if data[pos] == 0xCC and data[pos - 1] == 0xCC:
-                        found = True
-                        break
-                    pos -= 1
-                if not found:
-                    continue
-                # Go back to the start of the CC run
-                while pos > 0 and data[pos - 1] == 0xCC:
-                    pos -= 1
-                # Advance past CC bytes — that's the function entry point
-                candidate = pos
-                while candidate < i and data[candidate] == 0xCC:
-                    candidate += 1
-                # Sanity-check: common x64 prologue first bytes, or 0xC3 if
-                # already patched to RET by a previous run.
-                if data[candidate] in (0x40, 0x41, 0x48, 0x53, 0x55, 0x56, 0x57, 0xB8, 0xC3):
-                    func_starts.add(candidate)
-
-    if not func_starts:
-        return False, "could not locate VerifyApp function via string reference"
-
-    # MOV EAX, 1 (B8 01 00 00 00) + RET (C3) — return "verified ok" so callers
-    # don't interpret a false/garbage return as verification failure and disable
-    # overlay injection or other features gated on this check.
-    STUB = b'\xB8\x01\x00\x00\x00\xC3'
-
     changed = False
-    msg_parts = []
-    for fs in func_starts:
-        if bytes(data[fs:fs + len(STUB)]) == STUB:
-            msg_parts.append(f"already patched at 0x{fs:x}")
-            continue
-        for k, b in enumerate(STUB):
-            data[fs + k] = b
-        # NOP the rest of the prologue bytes up to the next CC boundary
-        j = fs + len(STUB)
-        while j < len(data) and data[j] != 0xCC:
-            data[j] = 0x90
-            j += 1
-            if j - fs >= 32:  # cap at 32 bytes; don't NOP into the whole function
-                break
-        msg_parts.append(f"patched at 0x{fs:x}")
-        changed = True
+    msgs = []
 
-    return changed, "; ".join(msg_parts)
+    # ── Primary: JZ → unconditional JMP inside VerifyApp ─────────────────────
+    # NOP (90) + TEST AL,AL (84 C0) + JZ rel32 with disp 0x0000202D (0F 84 2D 20 00 00)
+    JZ_PATTERN = bytes([0x90, 0x84, 0xC0, 0x0F, 0x84, 0x2D, 0x20, 0x00, 0x00])
+    # JMP near rel32 disp 0x0000202E + NOP pad (JMP is 5 bytes; JZ was 6 bytes,
+    # so displacement increases by 1 to reach the same target address)
+    JMP_PATCH  = bytes([0x90, 0x84, 0xC0, 0xE9, 0x2E, 0x20, 0x00, 0x00, 0x90])
+
+    jz_pos = raw.find(JZ_PATTERN)
+    if jz_pos != -1:
+        for k, b in enumerate(JMP_PATCH):
+            data[jz_pos + k] = b
+        raw = bytes(data)
+        changed = True
+        msgs.append(f"patched security gate at 0x{jz_pos:x}")
+    elif raw.find(JMP_PATCH) != -1:
+        msgs.append(f"already patched at 0x{raw.find(JMP_PATCH):x}")
+    else:
+        msgs.append("could not locate security gate (JZ pattern not found)")
+        return False, "; ".join(msgs)
+
+    # ── Secondary: revert old entry stub so VerifyApp can actually run ────────
+    # Previous versions of blitz-cli wrote MOV EAX,0; RET at the function entry.
+    # That prevents any initialization from running, breaking the overlay.
+    # Original first 6 bytes of VerifyApp (x64 prologue push sequence):
+    OLD_STUB      = bytes([0xB8, 0x00, 0x00, 0x00, 0x00, 0xC3])
+    ORIG_PROLOGUE = bytes([0x40, 0x55, 0x53, 0x56, 0x57, 0x41])
+    idx = 0
+    while True:
+        pos = raw.find(OLD_STUB, idx)
+        if pos == -1:
+            break
+        if pos >= 2 and raw[pos - 1] == 0xCC and raw[pos - 2] == 0xCC:
+            for k, b in enumerate(ORIG_PROLOGUE):
+                data[pos + k] = b
+            raw = bytes(data)
+            changed = True
+            msgs.append(f"reverted old stub at 0x{pos:x}")
+        idx = pos + 1
+
+    return changed, "; ".join(msgs) if msgs else "no changes"
+
+
+def restore_blitz_core_to_deps():
+    """
+    After a fresh Blitz install the binaries/ dir has a clean blitz_core.node.
+    Copy it into every blitz-deps version directory so that any copy previously
+    modified by an older run of this script is replaced with the signed original.
+    """
+    if SYSTEM != "Windows":
+        return
+    src = BLITZ_DIR / "resources" / "binaries" / "blitz_core.node"
+    if not src.exists():
+        return
+    deps_base = Path(os.environ["APPDATA"]) / "Blitz" / "blitz-deps"
+    if not deps_base.exists():
+        return
+    for ver_dir in deps_base.iterdir():
+        dest = ver_dir / "blitz_core.node"
+        if dest.exists():
+            try:
+                shutil.copy2(src, dest)
+                print(_ok(f"restored blitz_core.node to {ver_dir.name}"))
+            except PermissionError:
+                print(_warn(f"blitz_core.node in {ver_dir.name} is locked -- close Blitz first"))
 
 
 def patch_blitz_core():
     binaries_dir = BLITZ_DIR / "resources" / "binaries"
-    primary = binaries_dir / "blitz_core.node"
-    targets = [primary] if primary.exists() else []
+    targets = [binaries_dir / "blitz_core.node"]
 
     if SYSTEM == "Windows":
         deps_base = Path(os.environ["APPDATA"]) / "Blitz" / "blitz-deps"
@@ -379,15 +459,18 @@ def patch_blitz_core():
                     targets.append(candidate)
 
     for target in targets:
-        data = bytearray(target.read_bytes())
-        changed, msg = _patch_core_data(data)
-        if changed:
-            target.write_bytes(bytes(data))
-            print(_ok(target.name))
-        elif "already patched" in msg:
-            print(_ok(f"{target.name}: already up to date"))
-        else:
-            print(_warn(f"{target.name}: {msg}"))
+        try:
+            data = bytearray(target.read_bytes())
+            changed, msg = _patch_core_data(data)
+            if changed:
+                target.write_bytes(bytes(data))
+                print(_ok(target.name))
+            elif "already patched" in msg:
+                print(_ok(f"{target.name}: already up to date"))
+            else:
+                print(_warn(f"{target.name}: {msg}"))
+        except PermissionError:
+            print(_warn(f"{target.name}: file is locked -- close Blitz and re-run"))
 
 
 def _resign_mac():
@@ -508,36 +591,6 @@ def self_update():
         print(" [ok]")
 
 
-def patch_app():
-    patch_files = list(PATCHES_DIR.glob("*.json"))
-
-    if patch_files:
-        print("Extracting app.asar ...", end="", flush=True)
-        with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "asar-src"
-            extract_asar(APP_ASAR, src)
-            print(_ok())
-
-            print("Applying patches ...")
-            apply_all_patches(src)
-
-            print("Repacking app.asar ...", end="", flush=True)
-            repack_asar(src, APP_ASAR)
-            print(_ok())
-
-    print("Patching binaries ...")
-    new_hash = _sha256_file(APP_ASAR)
-    patch_index_node(new_hash)
-    patch_blitz_core()
-
-    if SYSTEM == "Darwin":
-        print("Re-signing app bundle ...", end="", flush=True)
-        _resign_mac()
-        print(_ok())
-
-    print("Done.")
-
-
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -551,8 +604,11 @@ def main():
     if command == "install":
         url = get_installer_url()
         installer = Path(tempfile.mkdtemp()) / Path(url).name
+        print(f"Downloading {installer.name} ...")
         download_file(url, installer)
+        print("Installing ...", end="", flush=True)
         install_blitz(installer)
+        print(" [ok]")
         return
 
     patch_only = command == "patch"
@@ -562,7 +618,9 @@ def main():
             installer = Path(args[1])
             if not installer.exists():
                 sys.exit(f"File not found: {installer}")
+            print("Installing ...", end="", flush=True)
             install_blitz(installer)
+            print(" [ok]")
     else:
         if command:
             installer = Path(command)
@@ -571,14 +629,50 @@ def main():
         else:
             url = get_installer_url()
             installer = Path(tempfile.mkdtemp()) / Path(url).name
+            print(f"Downloading {installer.name} ...")
             download_file(url, installer)
 
+        print("Installing ...", end="", flush=True)
         install_blitz(installer)
+        print(" [ok]")
 
     if not APP_ASAR.exists():
         sys.exit(f"app.asar not found at {APP_ASAR}")
 
-    patch_app()
+    # Kill any Blitz that auto-started after install before we touch its files.
+    _kill_blitz()
+
+    restore_blitz_core_to_deps()
+
+    patch_files = list(PATCHES_DIR.glob("*.json"))
+
+    if patch_files:
+        print("Extracting app.asar ...", end="", flush=True)
+        all_files, unpacked = _asar_paths(APP_ASAR)
+        unpack_glob = _unpack_glob_from_paths(all_files, unpacked)
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "asar-src"
+            extract_asar(APP_ASAR, src)
+            print(_ok())
+
+            print("Applying patches ...")
+            apply_all_patches(src)
+
+            print("Repacking app.asar ...", end="", flush=True)
+            repack_asar(src, APP_ASAR, unpack_glob)
+            print(_ok())
+
+    print("Patching binaries ...")
+    new_hash = _sha256_file(APP_ASAR)
+    patch_index_node(new_hash)
+    patch_blitz_core()
+
+    if SYSTEM == "Darwin":
+        print("Re-signing app bundle ...", end="", flush=True)
+        _resign_mac()
+        print(" [ok]")
+
+    print("Done.")
 
 
 if __name__ == "__main__":
