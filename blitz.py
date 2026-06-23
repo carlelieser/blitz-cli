@@ -370,16 +370,12 @@ def _patch_core_data(data: bytearray) -> tuple:
     """
     Bypass the E6 integrity check inside VerifyApp in blitz_core.node.
 
-    VerifyApp runs a ~8 KB security block that both verifies the asar hash
-    AND initializes the overlay renderer.  An older approach replaced the
-    conditional branch at the block entry with an unconditional JMP, which
-    skipped the block entirely — preventing overlay initialization.
-
-    The correct fix is narrower: a specific sub-check inside VerifyApp
-    compares an API return value with 0x6D and crashes with "E6 Error" when
-    it matches.  We patch that conditional JNZ to an unconditional JMP so
-    the E6 path is never taken while the rest of the block (including overlay
-    setup) still runs normally.
+    VerifyApp's security block contains a check: CMP EAX, 0x6D + JNZ.
+    When EAX == 0x6D the JNZ doesn't fire and execution falls through to
+    the normal path (which exits the block cleanly).  When EAX != 0x6D
+    the JNZ fires and jumps to the E6 error throw.
+    We NOP the JNZ so execution always falls through to the normal path,
+    regardless of what the API call returned.
 
     Secondary: revert any old entry-stub (MOV EAX,0; RET) that a previous
     version of blitz-cli may have written, since the stub skips all of init.
@@ -388,12 +384,11 @@ def _patch_core_data(data: bytearray) -> tuple:
     changed = False
     msgs = []
 
-    # ── Primary: bypass E6 sub-check inside VerifyApp ────────────────────────
-    # CMP EAX, 0x6D (83 F8 6D) + JNZ rel32 (0F 85 [disp4])
-    # → replace JNZ with unconditional JMP (E9 [disp+1]) + NOP pad
-    # (JMP is 5 bytes vs JNZ 6 bytes, so displacement increases by 1)
-    E6_CMP    = bytes([0x83, 0xF8, 0x6D, 0x0F, 0x85])  # CMP EAX,0x6D + JNZ prefix
-    E6_BYPASS = bytes([0x83, 0xF8, 0x6D, 0xE9])         # CMP EAX,0x6D + JMP prefix
+    # ── Primary: NOP the JNZ so execution always takes the normal (fallthrough) path
+    # CMP EAX, 0x6D (83 F8 6D) + JNZ rel32 (0F 85 [disp4]) — 9 bytes total
+    # → keep CMP, replace the 6-byte JNZ (0F 85 [disp4]) with 6 NOPs
+    E6_CMP    = bytes([0x83, 0xF8, 0x6D, 0x0F, 0x85])                    # CMP + JNZ prefix
+    E6_BYPASS = bytes([0x83, 0xF8, 0x6D, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90])  # CMP + 6×NOP
 
     idx = 0
     e6_found = 0
@@ -401,15 +396,12 @@ def _patch_core_data(data: bytearray) -> tuple:
         pos = raw.find(E6_CMP, idx)
         if pos == -1:
             break
-        old_disp = int.from_bytes(raw[pos + 5:pos + 9], "little", signed=True)
-        new_disp = (old_disp + 1).to_bytes(4, "little", signed=True)
-        data[pos + 3] = 0xE9
-        data[pos + 4:pos + 8] = new_disp
-        data[pos + 8] = 0x90
+        for k in range(6):
+            data[pos + 3 + k] = 0x90
         raw = bytes(data)
         changed = True
         e6_found += 1
-        msgs.append(f"bypassed E6 check at 0x{pos:x}")
+        msgs.append(f"NOPed E6 JNZ at 0x{pos:x}")
         idx = pos + 9
     if e6_found == 0:
         if raw.find(E6_BYPASS) != -1:
