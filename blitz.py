@@ -368,14 +368,18 @@ def patch_index_node(new_hash: str):
 
 def _patch_core_data(data: bytearray) -> tuple:
     """
-    Bypass the E6 integrity check inside VerifyApp in blitz_core.node.
+    Bypass E6 integrity checks inside blitz_core.node.
 
-    VerifyApp's security block contains a check: CMP EAX, 0x6D + JNZ.
-    When EAX == 0x6D the JNZ doesn't fire and execution falls through to
-    the normal path (which exits the block cleanly).  When EAX != 0x6D
-    the JNZ fires and jumps to the E6 error throw.
-    We NOP the JNZ so execution always falls through to the normal path,
-    regardless of what the API call returned.
+    Two separate checks are patched:
+
+    1. VerifyApp (CMP EAX, 0x6D + JNZ): When GetLastError() != 0x6D the JNZ
+       fires and routes to the E6 error throw.  We NOP the JNZ so execution
+       always falls through to the normal path.
+
+    2. VerifyAll hash check (CMP EAX, [RBP-0x28]; SETNZ BL): Compares a live
+       hash against a stored expected hash; if they differ BL becomes 1 which
+       eventually triggers the E6 error path.  We replace SETNZ BL with
+       XOR BL,BL (force BL=0) so the subsequent JZ always skips E6.
 
     Secondary: revert any old entry-stub (MOV EAX,0; RET) that a previous
     version of blitz-cli may have written, since the stub skips all of init.
@@ -384,7 +388,7 @@ def _patch_core_data(data: bytearray) -> tuple:
     changed = False
     msgs = []
 
-    # ── Primary: NOP the JNZ so execution always takes the normal (fallthrough) path
+    # ── Patch 1: NOP the JNZ so execution always takes the normal (fallthrough) path
     # CMP EAX, 0x6D (83 F8 6D) + JNZ rel32 (0F 85 [disp4]) — 9 bytes total
     # → keep CMP, replace the 6-byte JNZ (0F 85 [disp4]) with 6 NOPs
     E6_CMP    = bytes([0x83, 0xF8, 0x6D, 0x0F, 0x85])                    # CMP + JNZ prefix
@@ -405,9 +409,27 @@ def _patch_core_data(data: bytearray) -> tuple:
         idx = pos + 9
     if e6_found == 0:
         if raw.find(E6_BYPASS) != -1:
-            msgs.append("E6 bypass already applied")
+            msgs.append("E6 JNZ bypass already applied")
         else:
-            msgs.append("E6 check pattern not found — skipping")
+            msgs.append("E6 JNZ pattern not found — skipping")
+
+    # ── Patch 2: VerifyAll hash check — force BL=0 so JZ always skips E6 ────────
+    # CMP EAX,[RBP-0x28] (3B 45 D8) + SETNZ BL (0F 95 C3) — 6 bytes total
+    # → keep CMP bytes, replace SETNZ BL with XOR BL,BL (32 DB) + NOP (90)
+    HASH_CMP    = bytes([0x3B, 0x45, 0xD8, 0x0F, 0x95, 0xC3])   # original
+    HASH_BYPASS = bytes([0x3B, 0x45, 0xD8, 0x32, 0xDB, 0x90])   # patched
+    if raw.find(HASH_BYPASS) != -1:
+        msgs.append("E6 hash bypass already applied")
+    else:
+        pos = raw.find(HASH_CMP)
+        if pos == -1:
+            msgs.append("E6 hash pattern not found — skipping")
+        else:
+            for k, b in enumerate(HASH_BYPASS):
+                data[pos + k] = b
+            raw = bytes(data)
+            changed = True
+            msgs.append(f"Forced BL=0 at hash check 0x{pos:x}")
 
     # ── Secondary: revert old entry stub so VerifyApp can actually run ────────
     OLD_STUB      = bytes([0xB8, 0x00, 0x00, 0x00, 0x00, 0xC3])
