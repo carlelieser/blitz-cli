@@ -667,8 +667,6 @@ def main():
     # Kill any Blitz that auto-started after install before we touch its files.
     _kill_blitz()
 
-    restore_blitz_core_to_deps()
-
     patch_files = list(PATCHES_DIR.glob("*.json"))
 
     if patch_files:
@@ -692,7 +690,6 @@ def main():
     print("Patching binaries ...")
     new_hash = _sha256_file(APP_ASAR)
     patch_index_node(new_hash)
-    patch_blitz_core()
 
     if SYSTEM == "Darwin":
         print("Re-signing app bundle ...", end="", flush=True)
