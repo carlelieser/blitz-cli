@@ -1,8 +1,0 @@
-{
-  "priority": 11,
-  "file": "src/listeners/bapp.js",
-  "description": "Prevent BROWSERVIEW_RECREATE from destroying and recreating the BrowserView. Instead navigate the existing BrowserView to the new URL. This preserves sessionStorage across same-origin navigation so the auth module finds valid auth state and does not trigger logout. The existing CDP Fetch intercept and event handlers remain active on the same webContents.",
-  "type": "replace",
-  "find": "addListener(EvTypes.BROWSERVIEW_RECREATE, (url) => {\n  reCreateBrowserView(url);\n});",
-  "replace": "addListener(EvTypes.BROWSERVIEW_RECREATE, (url) => {\n  if (windows.client && windows.client.browserView) {\n    windows.client.browserView.webContents.loadURL(url || windows.client._initialURL);\n    return;\n  }\n  reCreateBrowserView(url);\n});"
-}
