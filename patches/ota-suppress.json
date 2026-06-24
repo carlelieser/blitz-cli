@@ -1,0 +1,8 @@
+{
+  "priority": 6,
+  "file": "src/ota.js",
+  "description": "Suppress OTA-triggered web app reload and version notification. Writes currentOTAVersion to prevent repeated triggers, then returns early — skipping sendMessageToBlitzApp and loadURL which cause post-game refreshes and logout.",
+  "type": "insert_after_regex",
+  "pattern": "if \\(version === app\\.getVersion\\(\\) \\|\\| !windows\\.client\\) return;",
+  "insert": "\n    await write(\"currentOTAVersion\", version);\n    return;"
+}
