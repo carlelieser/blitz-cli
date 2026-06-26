@@ -1,0 +1,8 @@
+{
+  "priority": 4,
+  "file": "src/native-utils.js",
+  "description": "Stub isElevated to always return false at the JS level. Survives blitz_core.node binary updates unlike byte-pattern patches. isElevated=false is safe — the overlay works without elevated injection.",
+  "type": "replace",
+  "find": "function getBlitzCore() {\n  return loadNativeModule(\"blitz_core\");\n}",
+  "replace": "function getBlitzCore() {\n  const _c = loadNativeModule(\"blitz_core\");\n  if (!_c.__blitzPatch) {\n    try { _c.isElevated = () => false; } catch (_e) {}\n    try { _c.__blitzPatch = true; } catch (_e) {}\n  }\n  return _c;\n}"
+}
