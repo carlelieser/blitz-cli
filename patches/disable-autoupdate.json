@@ -1,0 +1,8 @@
+{
+  "priority": 8,
+  "file": "src/autoUpdater/utils.js",
+  "description": "Disable auto-updater by overriding isUpdaterActive to return false. bootApp checks this before calling checkForUpdates and short-circuits to resolve() immediately. electron-updater also gates checkForUpdates on isUpdaterActive internally.",
+  "type": "replace",
+  "find": "function prepareUpdater(autoUpdater) {\n  const channel = getChannel();\n  if (!channel) return;",
+  "replace": "function prepareUpdater(autoUpdater) {\n  autoUpdater.isUpdaterActive = () => false;\n  const channel = getChannel();\n  if (!channel) return;"
+}
