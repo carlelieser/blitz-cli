@@ -1,8 +1,0 @@
-{
-  "priority": 11,
-  "file": "src/createWindow.js",
-  "description": "Delay setBrowserView in reCreateBrowserView until did-finish-load. While the BrowserView is not attached, the renderer sees visibilityState:hidden, so the auth module can initialize (LOAD_TOKEN -> me -> CDP fake me -> Redux populated) before visibilitychange:visible fires. When did-finish-load fires and the BrowserView is shown, async Vr finds a user in Redux and does not log out.",
-  "type": "replace",
-  "find": "  const browserView = createBrowserView({\n    width: winBounds.width,\n    height: winBounds.height,\n    url,\n  });\n\n  windows.client.browserView = browserView;\n  windows.client.setBrowserView(browserView);",
-  "replace": "  const browserView = createBrowserView({\n    width: winBounds.width,\n    height: winBounds.height,\n    url,\n  });\n\n  windows.client.browserView = browserView;\n  let _showBvDone = false;\n  const _showBv = () => {\n    if (_showBvDone) return;\n    _showBvDone = true;\n    if (windows.client && windows.client.browserView === browserView) {\n      windows.client.setBrowserView(browserView);\n    }\n  };\n  browserView.webContents.once(\"did-finish-load\", _showBv);\n  setTimeout(_showBv, 5000);"
-}
