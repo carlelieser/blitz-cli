@@ -414,22 +414,30 @@ def _patch_core_data(data: bytearray) -> tuple:
             msgs.append("E6 JNZ pattern not found — skipping")
 
     # ── Patch 2: VerifyAll hash check — force BL=0 so JZ always skips E6 ────────
-    # CMP EAX,[RBP-0x28] (3B 45 D8) + SETNZ BL (0F 95 C3) — 6 bytes total
-    # → keep CMP bytes, replace SETNZ BL with XOR BL,BL (32 DB) + NOP (90)
-    HASH_CMP    = bytes([0x3B, 0x45, 0xD8, 0x0F, 0x95, 0xC3])   # original
-    HASH_BYPASS = bytes([0x3B, 0x45, 0xD8, 0x32, 0xDB, 0x90])   # patched
-    if raw.find(HASH_BYPASS) != -1:
+    # CMP EAX,[RBP+disp8] (3B 45 xx) + SETNZ BL (0F 95 C3) — 6 bytes total
+    # → keep first 3 bytes, replace SETNZ BL with XOR BL,BL (32 DB) + NOP (90)
+    # disp8 varies between builds — search flexibly so this survives updates.
+    hash_pos = -1
+    hash_bypass_found = False
+    for _i in range(len(raw) - 5):
+        if raw[_i] == 0x3B and raw[_i + 1] == 0x45:
+            if raw[_i + 3] == 0x0F and raw[_i + 4] == 0x95 and raw[_i + 5] == 0xC3:
+                hash_pos = _i
+                break
+            if raw[_i + 3] == 0x32 and raw[_i + 4] == 0xDB and raw[_i + 5] == 0x90:
+                hash_bypass_found = True
+                break
+    if hash_bypass_found:
         msgs.append("E6 hash bypass already applied")
+    elif hash_pos == -1:
+        msgs.append("E6 hash pattern not found — skipping")
     else:
-        pos = raw.find(HASH_CMP)
-        if pos == -1:
-            msgs.append("E6 hash pattern not found — skipping")
-        else:
-            for k, b in enumerate(HASH_BYPASS):
-                data[pos + k] = b
-            raw = bytes(data)
-            changed = True
-            msgs.append(f"Forced BL=0 at hash check 0x{pos:x}")
+        data[hash_pos + 3] = 0x32
+        data[hash_pos + 4] = 0xDB
+        data[hash_pos + 5] = 0x90
+        raw = bytes(data)
+        changed = True
+        msgs.append(f"Forced BL=0 at hash check 0x{hash_pos:x}")
 
     # ── Secondary: revert old entry stub so VerifyApp can actually run ────────
     OLD_STUB      = bytes([0xB8, 0x00, 0x00, 0x00, 0x00, 0xC3])
